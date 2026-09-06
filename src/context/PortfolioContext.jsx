@@ -4,6 +4,7 @@ import riskiPortrait from '../assets/riski-portrait.jpg';
 import riskiAboutPortrait from '../assets/riski-about-portrait.jpg';
 import orangImg from '../assets/ORANG.png';
 import { db, LOCAL_KEYS, readLocal } from '../services/database';
+import { supabase, isSupabaseConnected } from '../services/supabase';
 
 // Initial Master Owner Data (OWNER-001)
 const DEFAULT_OWNER_DATA = {
@@ -531,106 +532,191 @@ export function PortfolioProvider({ children }) {
     ],
   });
 
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState(null);
+
   // =======================================================================
-  // INITIAL DATA FETCH — Load from Supabase (or localStorage fallback)
+  // CLOUD DATA REFRESH FUNCTION
   // =======================================================================
+  const refreshData = useCallback(async () => {
+    setIsSyncing(true);
+    try {
+      const [
+        cloudOwner,
+        cloudCustomers,
+        cloudTemplates,
+        cloudTransactions,
+        cloudPayment,
+        cloudPricing,
+        cloudFaqs,
+      ] = await Promise.all([
+        db.ownerData.get(),
+        db.customers.list(),
+        db.templates.list(),
+        db.transactions.list(),
+        db.paymentSettings.get(),
+        db.pricingPackages.list(),
+        db.pricingFaqs.list(),
+      ]);
+
+      if (cloudOwner && Object.keys(cloudOwner).length > 0) {
+        setOwnerData((prev) => ({
+          ...prev,
+          ...cloudOwner,
+          projects: cloudOwner.projects && cloudOwner.projects.length > 0 ? cloudOwner.projects : prev.projects,
+        }));
+      }
+
+      if (Array.isArray(cloudCustomers)) {
+        setCustomers(cloudCustomers);
+      }
+
+      if (Array.isArray(cloudTemplates) && cloudTemplates.length > 0) {
+        setTemplates(cloudTemplates);
+      }
+
+      if (Array.isArray(cloudTransactions)) {
+        setTransactions(cloudTransactions);
+      }
+
+      if (cloudPayment && Object.keys(cloudPayment).length > 0) {
+        setPaymentSettings((prev) => ({ ...prev, ...cloudPayment }));
+      }
+
+      if (Array.isArray(cloudPricing) && cloudPricing.length > 0) {
+        setPricingPackages(cloudPricing);
+      }
+
+      if (Array.isArray(cloudFaqs) && cloudFaqs.length > 0) {
+        setPricingFaqs(cloudFaqs);
+      }
+
+      setLastSyncTime(new Date());
+    } catch (err) {
+      console.warn('[PortfolioContext] Cloud fetch error:', err);
+    } finally {
+      setIsLoading(false);
+      setIsSyncing(false);
+    }
+  }, []);
+
+  // Initial load
   useEffect(() => {
     if (hasFetchedRef.current) return;
     hasFetchedRef.current = true;
+    refreshData();
+  }, [refreshData]);
 
-    const loadAllData = async () => {
-      try {
-        // Fetch all data in parallel from Cloud
-        const [
-          cloudOwner,
-          cloudCustomers,
-          cloudTemplates,
-          cloudTransactions,
-          cloudPayment,
-          cloudPricing,
-          cloudFaqs,
-        ] = await Promise.all([
-          db.ownerData.get(),
-          db.customers.list(),
-          db.templates.list(),
-          db.transactions.list(),
-          db.paymentSettings.get(),
-          db.pricingPackages.list(),
-          db.pricingFaqs.list(),
-        ]);
-
-        // Sync Owner
-        if (cloudOwner && Object.keys(cloudOwner).length > 0) {
-          setOwnerData((prev) => ({
-            ...prev,
-            ...cloudOwner,
-            projects: cloudOwner.projects && cloudOwner.projects.length > 0
-              ? cloudOwner.projects
-              : prev.projects,
-          }));
-        }
-
-        // Sync Customers (Ground Truth from Cloud)
-        if (Array.isArray(cloudCustomers)) {
-          setCustomers(cloudCustomers);
-        }
-
-        // Sync Templates
-        if (Array.isArray(cloudTemplates) && cloudTemplates.length > 0) {
-          setTemplates(cloudTemplates);
-        }
-
-        // Sync Transactions
-        if (Array.isArray(cloudTransactions)) {
-          setTransactions(cloudTransactions);
-        }
-
-        // Sync Payment Settings
-        if (cloudPayment && Object.keys(cloudPayment).length > 0) {
-          setPaymentSettings((prev) => ({ ...prev, ...cloudPayment }));
-        }
-
-        // Sync Pricing Packages
-        if (Array.isArray(cloudPricing) && cloudPricing.length > 0) {
-          setPricingPackages(cloudPricing);
-        }
-
-        // Sync FAQs
-        if (Array.isArray(cloudFaqs) && cloudFaqs.length > 0) {
-          setPricingFaqs(cloudFaqs);
-        }
-      } catch (err) {
-        console.warn('[PortfolioContext] Cloud fetch error, using local data:', err);
-      } finally {
-        setIsLoading(false);
-      }
+  // Tab Focus & Periodic Polling (Double-Guarantee)
+  useEffect(() => {
+    const handleFocus = () => {
+      refreshData();
     };
+    window.addEventListener('focus', handleFocus);
 
-    loadAllData();
+    const interval = setInterval(() => {
+      refreshData();
+    }, 15000);
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      clearInterval(interval);
+    };
+  }, [refreshData]);
+
+  // =======================================================================
+  // SUPABASE REALTIME SUBSCRIPTION (Instant Zero-Delay Multi-Device Sync)
+  // =======================================================================
+  useEffect(() => {
+    if (!isSupabaseConnected()) return;
+
+    const channel = supabase
+      .channel('cloud_live_sync')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'customers' },
+        (payload) => {
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            const rowData = payload.new?.data || payload.new;
+            if (rowData && rowData.id) {
+              setCustomers((prev) => {
+                const exists = prev.some((c) => c.id === rowData.id);
+                if (exists) {
+                  return prev.map((c) => (c.id === rowData.id ? { ...c, ...rowData } : c));
+                }
+                return [rowData, ...prev];
+              });
+            }
+          } else if (payload.eventType === 'DELETE') {
+            const deletedId = payload.old?.id;
+            if (deletedId) {
+              setCustomers((prev) => prev.filter((c) => c.id !== deletedId));
+            }
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'transactions' },
+        (payload) => {
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            const rowData = payload.new?.data || payload.new;
+            if (rowData && rowData.id) {
+              setTransactions((prev) => {
+                const exists = prev.some((t) => t.id === rowData.id);
+                if (exists) {
+                  return prev.map((t) => (t.id === rowData.id ? { ...t, ...rowData } : t));
+                }
+                return [rowData, ...prev];
+              });
+            }
+          } else if (payload.eventType === 'DELETE') {
+            const deletedId = payload.old?.id;
+            if (deletedId) {
+              setTransactions((prev) => prev.filter((t) => t.id !== deletedId));
+            }
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'payment_settings' },
+        (payload) => {
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            const rowData = payload.new?.data || payload.new;
+            if (rowData) {
+              setPaymentSettings((prev) => ({ ...prev, ...rowData }));
+            }
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'pricing_packages' },
+        () => {
+          db.pricingPackages.list().then((pkgs) => {
+            if (Array.isArray(pkgs)) setPricingPackages(pkgs);
+          });
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'pricing_faqs' },
+        () => {
+          db.pricingFaqs.list().then((faqs) => {
+            if (Array.isArray(faqs)) setPricingFaqs(faqs);
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
-  // =======================================================================
-  // AUTO-SAVE SAFETY NET (Supabase Cloud + Local Storage Sync)
-  // =======================================================================
-  const pendingSavesRef = useRef({});
-  const saveTimerRef = useRef({});
-
-  const debouncedSave = useCallback((key, saveFn, data) => {
-    if (isLoading) return;
-    pendingSavesRef.current[key] = { saveFn, data };
-    clearTimeout(saveTimerRef.current[key]);
-    saveTimerRef.current[key] = setTimeout(() => {
-      saveFn(data)
-        .then(() => {
-          delete pendingSavesRef.current[key];
-        })
-        .catch((err) =>
-          console.warn(`[PortfolioContext] Failed saving ${key}:`, err)
-        );
-    }, 250);
-  }, [isLoading]);
-
   // Flush pending saves before window unloads
+  const pendingSavesRef = useRef({});
   useEffect(() => {
     const handleBeforeUnload = () => {
       Object.keys(pendingSavesRef.current).forEach((key) => {
@@ -643,41 +729,6 @@ export function PortfolioProvider({ children }) {
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, []);
-
-  useEffect(() => {
-    if (isLoading) return;
-    debouncedSave('owner', db.ownerData.save, ownerData);
-  }, [ownerData, isLoading, debouncedSave]);
-
-  useEffect(() => {
-    if (isLoading) return;
-    debouncedSave('customers', db.customers.saveAll, customers);
-  }, [customers, isLoading, debouncedSave]);
-
-  useEffect(() => {
-    if (isLoading) return;
-    debouncedSave('templates', db.templates.saveAll, templates);
-  }, [templates, isLoading, debouncedSave]);
-
-  useEffect(() => {
-    if (isLoading) return;
-    debouncedSave('transactions', db.transactions.saveAll, transactions);
-  }, [transactions, isLoading, debouncedSave]);
-
-  useEffect(() => {
-    if (isLoading) return;
-    debouncedSave('payment', db.paymentSettings.save, paymentSettings);
-  }, [paymentSettings, isLoading, debouncedSave]);
-
-  useEffect(() => {
-    if (isLoading) return;
-    debouncedSave('pricing', db.pricingPackages.saveAll, pricingPackages);
-  }, [pricingPackages, isLoading, debouncedSave]);
-
-  useEffect(() => {
-    if (isLoading) return;
-    debouncedSave('faqs', db.pricingFaqs.saveAll, pricingFaqs);
-  }, [pricingFaqs, isLoading, debouncedSave]);
 
   // =======================================================================
   // PRICING PACKAGES ACTIONS (Direct DB Save + State Update)
@@ -843,10 +894,10 @@ export function PortfolioProvider({ children }) {
   // =======================================================================
   // CUSTOMER MANAGEMENT ACTIONS (Direct DB Save + State Update)
   // =======================================================================
-  const addCustomer = (customerData) => {
-    const nextNum = String(customers.length + 1).padStart(3, '0');
-    const newCustId = `CUST-${nextNum}`;
-    const slug = (customerData.slug || customerData.name || `user-${nextNum}`)
+  const addCustomer = async (customerData) => {
+    const nextSeq = String(Date.now()).slice(-4) + Math.floor(10 + Math.random() * 90);
+    const newCustId = `CUST-${nextSeq}`;
+    const slug = (customerData.slug || customerData.name || `user-${nextSeq}`)
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/(^-|-$)/g, '');
@@ -915,45 +966,36 @@ export function PortfolioProvider({ children }) {
       },
     };
 
-    setCustomers((prev) => {
-      const updated = [newCustomer, ...prev];
-      db.customers.saveAll(updated);
-      return updated;
-    });
+    setCustomers((prev) => [newCustomer, ...prev.filter((c) => c.id !== newCustId)]);
+    await db.customers.create(newCustomer);
     return newCustomer;
   };
 
-  const updateCustomer = (customerId, updatedData) => {
+  const updateCustomer = async (customerId, updatedData) => {
     setCustomers((prev) => {
-      const updated = prev.map((c) => (c.id === customerId ? { ...c, ...updatedData } : c));
-      db.customers.saveAll(updated);
-      return updated;
+      const target = prev.find((c) => c.id === customerId) || {};
+      const merged = { ...target, ...updatedData, id: customerId };
+      return prev.map((c) => (c.id === customerId ? merged : c));
     });
+    await db.customers.update(customerId, updatedData);
   };
 
-  const deleteCustomer = (customerId) => {
-    setCustomers((prev) => {
-      const updated = prev.filter((c) => c.id !== customerId);
-      db.customers.saveAll(updated);
-      return updated;
-    });
+  const deleteCustomer = async (customerId) => {
+    setCustomers((prev) => prev.filter((c) => c.id !== customerId));
+    await db.customers.delete(customerId);
   };
 
-  const toggleCustomerStatus = (customerId) => {
-    setCustomers((prev) => {
-      const updated = prev.map((c) => {
-        if (c.id === customerId) {
-          const newStatus = c.status === 'active' ? 'inactive' : 'active';
-          return { ...c, status: newStatus };
-        }
-        return c;
-      });
-      db.customers.saveAll(updated);
-      return updated;
-    });
+  const toggleCustomerStatus = async (customerId) => {
+    const target = customers.find((c) => c.id === customerId);
+    if (!target) return;
+    const newStatus = target.status === 'active' ? 'inactive' : 'active';
+    setCustomers((prev) =>
+      prev.map((c) => (c.id === customerId ? { ...c, status: newStatus } : c))
+    );
+    await db.customers.update(customerId, { status: newStatus });
   };
 
-  const resetCustomerData = (customerId) => {
+  const resetCustomerData = async (customerId) => {
     const target = customers.find((c) => c.id === customerId);
     if (!target) return;
 
@@ -978,31 +1020,28 @@ export function PortfolioProvider({ children }) {
       cv: { fileName: 'CV.pdf', fileUrl: '', lastUpdated: '' },
     };
 
-    setCustomers((prev) => {
-      const updated = prev.map((c) => (c.id === customerId ? { ...c, ...resetPayload } : c));
-      db.customers.saveAll(updated);
-      return updated;
-    });
+    setCustomers((prev) =>
+      prev.map((c) => (c.id === customerId ? { ...c, ...resetPayload } : c))
+    );
+    await db.customers.update(customerId, resetPayload);
   };
 
-  const togglePublishCustomer = (customerId) => {
+  const togglePublishCustomer = async (customerId) => {
     const target = customers.find((c) => c.id === customerId);
     if (!target) return;
     const currentStatus = target.isPublished !== false;
     const newStatus = !currentStatus;
-    setCustomers((prev) => {
-      const updated = prev.map((c) => (c.id === customerId ? { ...c, isPublished: newStatus } : c));
-      db.customers.saveAll(updated);
-      return updated;
-    });
+    setCustomers((prev) =>
+      prev.map((c) => (c.id === customerId ? { ...c, isPublished: newStatus } : c))
+    );
+    await db.customers.update(customerId, { isPublished: newStatus });
   };
 
-  const setCustomerPublishStatus = (customerId, isPublished) => {
-    setCustomers((prev) => {
-      const updated = prev.map((c) => (c.id === customerId ? { ...c, isPublished } : c));
-      db.customers.saveAll(updated);
-      return updated;
-    });
+  const setCustomerPublishStatus = async (customerId, isPublished) => {
+    setCustomers((prev) =>
+      prev.map((c) => (c.id === customerId ? { ...c, isPublished } : c))
+    );
+    await db.customers.update(customerId, { isPublished });
   };
 
   const getPortfolioData = (targetId) => {
@@ -1122,24 +1161,23 @@ export function PortfolioProvider({ children }) {
     return cloned;
   };
 
-  const migrateCustomerTemplate = (customerId, newTemplateId) => {
-    setCustomers((prev) => {
-      const updated = prev.map((c) => (c.id === customerId ? { ...c, templateId: newTemplateId } : c));
-      db.customers.saveAll(updated);
-      return updated;
-    });
+  const migrateCustomerTemplate = async (customerId, newTemplateId) => {
+    setCustomers((prev) =>
+      prev.map((c) => (c.id === customerId ? { ...c, templateId: newTemplateId } : c))
+    );
+    await db.customers.update(customerId, { templateId: newTemplateId });
   };
 
   // =======================================================================
   // PAYMENT & ORDERS ACTIONS (Direct DB Save + State Update)
   // =======================================================================
-  const createOrder = (orderData) => {
-    const nextCustNum = String(customers.length + 1).padStart(3, '0');
+  const createOrder = async (orderData) => {
+    const nextCustNum = String(Date.now()).slice(-4) + Math.floor(10 + Math.random() * 90);
     const newCustId = `CUST-${nextCustNum}`;
     const cleanSlug = (orderData.slug || orderData.buyerName || 'user')
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '');
+      .replace(/^-|-$/g, '') || `user-${nextCustNum}`;
 
     const newCustomer = {
       id: newCustId,
@@ -1175,15 +1213,9 @@ export function PortfolioProvider({ children }) {
       },
     };
 
-    setCustomers((prev) => {
-      const updated = [newCustomer, ...prev];
-      db.customers.saveAll(updated);
-      return updated;
-    });
-
-    const nextTxNum = String(transactions.length + 1).padStart(4, '0');
+    const nextTxNum = String(Date.now()).slice(-4) + Math.floor(10 + Math.random() * 90);
     const newTx = {
-      id: `TRX-${Date.now().toString().slice(-6)}-${nextTxNum}`,
+      id: `TRX-${nextTxNum}`,
       buyerName: orderData.buyerName,
       buyerEmail: orderData.buyerEmail,
       buyerWhatsapp: orderData.buyerWhatsapp,
@@ -1198,79 +1230,79 @@ export function PortfolioProvider({ children }) {
       createdAt: new Date().toISOString().replace('T', ' ').slice(0, 16),
     };
 
-    setTransactions((prev) => {
-      const updated = [newTx, ...prev];
-      db.transactions.saveAll(updated);
-      return updated;
-    });
+    setCustomers((prev) => [newCustomer, ...prev.filter((c) => c.id !== newCustId)]);
+    setTransactions((prev) => [newTx, ...prev.filter((t) => t.id !== newTx.id)]);
+
+    // Direct Cloud Upsert in parallel
+    await Promise.all([
+      db.customers.create(newCustomer),
+      db.transactions.create(newTx),
+    ]);
 
     return { transaction: newTx, customer: newCustomer };
   };
 
-  const verifyPayment = (txId) => {
+  const verifyPayment = async (txId) => {
     const target = transactions.find((t) => t.id === txId);
     if (!target) return;
-    setTransactions((prev) => {
-      const updated = prev.map((t) => (t.id === txId ? { ...t, status: 'lunas' } : t));
-      db.transactions.saveAll(updated);
-      return updated;
-    });
+
+    setTransactions((prev) =>
+      prev.map((t) => (t.id === txId ? { ...t, status: 'lunas' } : t))
+    );
+    await db.transactions.update(txId, { status: 'lunas' });
 
     if (target.customerId) {
-      setCustomers((prev) => {
-        const updated = prev.map((c) => (c.id === target.customerId ? { ...c, status: 'active', isPublished: true } : c));
-        db.customers.saveAll(updated);
-        return updated;
-      });
+      setCustomers((prev) =>
+        prev.map((c) =>
+          c.id === target.customerId ? { ...c, status: 'active', isPublished: true } : c
+        )
+      );
+      await db.customers.update(target.customerId, { status: 'active', isPublished: true });
     }
   };
 
-  const rejectPayment = (txId) => {
+  const rejectPayment = async (txId) => {
     const target = transactions.find((t) => t.id === txId);
     if (!target) return;
-    setTransactions((prev) => {
-      const updated = prev.map((t) => (t.id === txId ? { ...t, status: 'ditolak' } : t));
-      db.transactions.saveAll(updated);
-      return updated;
-    });
+
+    setTransactions((prev) =>
+      prev.map((t) => (t.id === txId ? { ...t, status: 'ditolak' } : t))
+    );
+    await db.transactions.update(txId, { status: 'ditolak' });
 
     if (target.customerId) {
-      setCustomers((prev) => {
-        const updated = prev.map((c) => (c.id === target.customerId ? { ...c, status: 'inactive' } : c));
-        db.customers.saveAll(updated);
-        return updated;
-      });
+      setCustomers((prev) =>
+        prev.map((c) => (c.id === target.customerId ? { ...c, status: 'inactive' } : c))
+      );
+      await db.customers.update(target.customerId, { status: 'inactive' });
     }
   };
 
-  const approveCustomerDirectly = (customerId) => {
-    setCustomers((prev) => {
-      const updated = prev.map((c) => (c.id === customerId ? { ...c, status: 'active', isPublished: true } : c));
-      db.customers.saveAll(updated);
-      return updated;
-    });
+  const approveCustomerDirectly = async (customerId) => {
+    setCustomers((prev) =>
+      prev.map((c) =>
+        c.id === customerId ? { ...c, status: 'active', isPublished: true } : c
+      )
+    );
+    await db.customers.update(customerId, { status: 'active', isPublished: true });
 
-    setTransactions((prev) => {
-      const updated = prev.map((t) => (t.customerId === customerId ? { ...t, status: 'lunas' } : t));
-      db.transactions.saveAll(updated);
-      return updated;
-    });
+    setTransactions((prev) =>
+      prev.map((t) => (t.customerId === customerId ? { ...t, status: 'lunas' } : t))
+    );
+    const relatedTx = transactions.find((t) => t.customerId === customerId);
+    if (relatedTx) {
+      await db.transactions.update(relatedTx.id, { status: 'lunas' });
+    }
   };
 
-  const deleteTransaction = (txId) => {
-    setTransactions((prev) => {
-      const updated = prev.filter((t) => t.id !== txId);
-      db.transactions.saveAll(updated);
-      return updated;
-    });
+  const deleteTransaction = async (txId) => {
+    setTransactions((prev) => prev.filter((t) => t.id !== txId));
+    await db.transactions.delete(txId);
   };
 
-  const updatePaymentSettings = (newSettings) => {
-    setPaymentSettings((prev) => {
-      const updated = { ...prev, ...newSettings };
-      db.paymentSettings.save(updated);
-      return updated;
-    });
+  const updatePaymentSettings = async (newSettings) => {
+    setPaymentSettings((prev) => ({ ...prev, ...newSettings }));
+    await db.paymentSettings.save(newSettings);
   };
 
   // =======================================================================
@@ -1401,6 +1433,9 @@ export function PortfolioProvider({ children }) {
         deletePricingFaq,
         resetPricingToDefault,
         getPortfolioData,
+        refreshData,
+        isSyncing,
+        lastSyncTime,
         exportDatabaseBackup,
         importDatabaseBackup,
         resetToDefaultData,

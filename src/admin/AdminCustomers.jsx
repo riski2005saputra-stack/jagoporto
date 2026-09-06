@@ -14,6 +14,7 @@ import {
   AlertCircle,
   Monitor,
   Lock,
+  RefreshCw,
 } from 'lucide-react';
 import { usePortfolio } from '../context/PortfolioContext';
 import LivePreviewModal from '../components/LivePreviewModal';
@@ -28,6 +29,9 @@ export default function AdminCustomers() {
     approveCustomerDirectly,
     resetCustomerData,
     togglePublishCustomer,
+    refreshData,
+    isSyncing,
+    lastSyncTime,
   } = usePortfolio();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -130,14 +134,27 @@ export default function AdminCustomers() {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setShowAddModal(true)}
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-rose-700 hover:from-blue-500 hover:to-rose-600 border border-blue-400/50 text-xs font-bold text-white transition-all shadow-lg shadow-blue-950/50 cursor-pointer shrink-0 hover:scale-105"
-        >
-          <UserPlus className="w-4 h-4" />
-          <span>Tambah Customer Baru</span>
-        </button>
+        <div className="flex items-center gap-2.5">
+          <button
+            type="button"
+            disabled={isSyncing}
+            onClick={() => refreshData()}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/15 text-xs font-mono font-bold text-slate-200 transition-all cursor-pointer disabled:opacity-50"
+            title="Sinkronkan dengan database cloud Supabase"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-cyan-400 ${isSyncing ? 'animate-spin' : ''}`} />
+            <span>{isSyncing ? 'Sinkronisasi...' : 'Refresh Cloud'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowAddModal(true)}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-rose-700 hover:from-blue-500 hover:to-rose-600 border border-blue-400/50 text-xs font-bold text-white transition-all shadow-lg shadow-blue-950/50 cursor-pointer shrink-0 hover:scale-105"
+          >
+            <UserPlus className="w-4 h-4" />
+            <span>Tambah Customer Baru</span>
+          </button>
+        </div>
       </div>
 
       {/* ========================================================

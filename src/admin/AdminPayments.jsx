@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   Filter,
   Plus,
+  RefreshCw,
 } from 'lucide-react';
 import { usePortfolio } from '../context/PortfolioContext';
 import { Link } from 'react-router-dom';
@@ -30,6 +31,9 @@ export default function AdminPayments() {
     rejectPayment,
     deleteTransaction,
     updatePaymentSettings,
+    refreshData,
+    isSyncing,
+    lastSyncTime,
   } = usePortfolio();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -136,13 +140,26 @@ export default function AdminPayments() {
           </p>
         </div>
 
-        <Link
-          to="/pricing"
-          target="_blank"
-          className="inline-flex items-center gap-2 px-4 sm:px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-700 to-emerald-900 hover:from-emerald-500 hover:to-teal-600 border border-emerald-400/50 text-xs font-bold text-white transition-all shadow-lg cursor-pointer shrink-0 hover:scale-105"
-        >
-          <span>Buka Halaman Pricing Publik ↗</span>
-        </Link>
+        <div className="flex items-center gap-2.5">
+          <button
+            type="button"
+            disabled={isSyncing}
+            onClick={() => refreshData()}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/15 text-xs font-mono font-bold text-slate-200 transition-all cursor-pointer disabled:opacity-50"
+            title="Sinkronkan transaksi dengan cloud Supabase"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-emerald-400 ${isSyncing ? 'animate-spin' : ''}`} />
+            <span>{isSyncing ? 'Sinkronisasi...' : 'Refresh Cloud'}</span>
+          </button>
+
+          <Link
+            to="/pricing"
+            target="_blank"
+            className="inline-flex items-center gap-2 px-4 sm:px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-700 to-emerald-900 hover:from-emerald-500 hover:to-teal-600 border border-emerald-400/50 text-xs font-bold text-white transition-all shadow-lg cursor-pointer shrink-0 hover:scale-105"
+          >
+            <span>Buka Halaman Pricing Publik ↗</span>
+          </Link>
+        </div>
       </div>
 
       {/* ========================================================

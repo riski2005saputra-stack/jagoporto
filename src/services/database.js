@@ -123,16 +123,17 @@ export const db = {
 
     create: async (customerObj) => {
       const list = readLocal(LOCAL_KEYS.CUSTOMERS, []);
-      list.unshift(customerObj);
-      writeLocal(LOCAL_KEYS.CUSTOMERS, list);
+      const updated = [customerObj, ...list.filter((c) => c.id !== customerObj.id)];
+      writeLocal(LOCAL_KEYS.CUSTOMERS, updated);
 
       if (isSupabaseConnected()) {
         try {
           const { error } = await supabase
             .from('customers')
-            .insert({
+            .upsert({
               id: customerObj.id,
               data: customerObj,
+              updated_at: new Date().toISOString(),
             });
           if (error) console.error('[DB Cloud] customers.create error:', error);
           return !error;
@@ -372,18 +373,20 @@ export const db = {
 
     create: async (txObj) => {
       const list = readLocal(LOCAL_KEYS.TRANSACTIONS, []);
-      list.unshift(txObj);
-      writeLocal(LOCAL_KEYS.TRANSACTIONS, list);
+      const updated = [txObj, ...list.filter((t) => t.id !== txObj.id)];
+      writeLocal(LOCAL_KEYS.TRANSACTIONS, updated);
 
       if (isSupabaseConnected()) {
         try {
           const { error } = await supabase
             .from('transactions')
-            .insert({
+            .upsert({
               id: txObj.id,
               data: txObj,
+              updated_at: new Date().toISOString(),
             });
           if (error) console.error('[DB Cloud] transactions.create error:', error);
+          return !error;
         } catch (e) {
           console.error('[DB Cloud] transactions.create exception:', e);
         }
