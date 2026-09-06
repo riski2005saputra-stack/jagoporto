@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -11,9 +11,11 @@ import {
   Lock,
   Globe,
   FileEdit,
+  Loader2,
 } from 'lucide-react';
 import { usePortfolio } from '../context/PortfolioContext';
 import { useAuth } from '../context/AuthContext';
+import { supabase, isSupabaseConnected } from '../services/database';
 
 // Core Master Template Components
 import Navbar from '../components/Navbar';
@@ -25,24 +27,127 @@ import Footer from '../components/Footer';
 
 export default function CustomerPortfolioView() {
   const { slug } = useParams();
-  const { customers, templates, togglePublishCustomer } = usePortfolio();
+  const { customers, templates, togglePublishCustomer, isLoading: contextLoading } = usePortfolio();
   const { isCustomerAuthorized, isMasterAuthenticated } = useAuth();
 
-  // Find customer by slug or customerId (case-insensitive)
-  const customer = customers.find(
+  const [directCustomer, setDirectCustomer] = useState(null);
+  const [isFetchingDirect, setIsFetchingDirect] = useState(true);
+
+  // Find customer in context state first
+  const contextCustomer = customers.find(
     (c) =>
       c.slug?.toLowerCase() === slug?.toLowerCase() ||
       c.id?.toLowerCase() === slug?.toLowerCase() ||
       c.name?.toLowerCase().replace(/\s+/g, '-') === slug?.toLowerCase()
   );
 
+  // Active customer: prefer direct fetched, then context customer
+  const customer = directCustomer || contextCustomer;
+
+  // Direct Cloud Fetch on mount / slug change (Zero-delay single fetch)
+  useEffect(() => {
+    let isMounted = true;
+    window.scrollTo(0, 0);
+
+    const fetchDirect = async () => {
+      setIsFetchingDirect(true);
+      if (isSupabaseConnected()) {
+        try {
+          // 1. Try finding by ID directly
+          const { data: byId } = await supabase
+            .from('customers')
+            .select('id, data')
+            .eq('id', slug)
+            .maybeSingle();
+
+          if (byId?.data && isMounted) {
+            setDirectCustomer({ ...byId.data, id: byId.id });
+            setIsFetchingDirect(false);
+            return;
+          }
+
+          // 2. Fetch all rows to match slug or name
+          const { data: allRows } = await supabase
+            .from('customers')
+            .select('id, data');
+
+          if (allRows && isMounted) {
+            const match = allRows
+              .map((r) => ({ ...r.data, id: r.id }))
+              .find(
+                (c) =>
+                  c.slug?.toLowerCase() === slug?.toLowerCase() ||
+                  c.id?.toLowerCase() === slug?.toLowerCase() ||
+                  c.name?.toLowerCase().replace(/\s+/g, '-') === slug?.toLowerCase()
+              );
+
+            if (match) {
+              setDirectCustomer(match);
+            }
+          }
+        } catch (e) {
+          console.warn('[CustomerPortfolioView] Direct cloud fetch error:', e);
+        }
+      }
+      if (isMounted) {
+        setIsFetchingDirect(false);
+      }
+    };
+
+    fetchDirect();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [slug]);
+
+  // Real-time listener for this specific customer
+  useEffect(() => {
+    if (!isSupabaseConnected() || !customer?.id) return;
+
+    const channel = supabase
+      .channel(`live_portfolio_${customer.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'customers', filter: `id=eq.${customer.id}` },
+        (payload) => {
+          if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
+            const rowData = payload.new?.data
+              ? { ...payload.new.data, id: payload.new.id || payload.new.data.id }
+              : payload.new;
+            if (rowData) {
+              setDirectCustomer(rowData);
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [customer?.id]);
+
   const assignedTemplate = templates.find((t) => t.id === customer?.templateId) || templates[0];
   const isAuthorizedOwner = customer ? isCustomerAuthorized(customer.id) || isMasterAuthenticated : false;
   const isDraft = customer ? customer.isPublished === false : false;
 
-  useEffect(() => {
-    window.scrollTo(0, 0);
-  }, [slug]);
+  // ========================================================
+  // 0. STATE: INITIAL LOADING
+  // ========================================================
+  if (!customer && (isFetchingDirect || contextLoading)) {
+    return (
+      <div className="min-h-screen bg-[#05080D] text-white flex flex-col items-center justify-center p-4">
+        <div className="flex flex-col items-center gap-3 text-center">
+          <div className="w-12 h-12 rounded-2xl bg-blue-600/20 border border-blue-400/40 flex items-center justify-center text-blue-400 animate-spin">
+            <Loader2 className="w-6 h-6" />
+          </div>
+          <div className="text-sm font-bold font-sans text-white">Memuat Portofolio Cloud...</div>
+          <div className="text-xs font-mono text-slate-400">Sinkronisasi data real-time...</div>
+        </div>
+      </div>
+    );
+  }
 
   // ========================================================
   // 1. STATE: CUSTOMER NOT FOUND (404)

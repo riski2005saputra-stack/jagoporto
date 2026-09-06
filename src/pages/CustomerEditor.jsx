@@ -39,6 +39,7 @@ import { usePortfolio } from '../context/PortfolioContext';
 import { useAuth } from '../context/AuthContext';
 import { LinkedinIcon, InstagramIcon } from '../components/SocialIcons';
 import LivePreviewModal from '../components/LivePreviewModal';
+import { supabase, isSupabaseConnected } from '../services/database';
 
 export default function CustomerEditor() {
   const { customerId } = useParams();
@@ -155,6 +156,82 @@ export default function CustomerEditor() {
       });
     }
   }, [foundCustomer]);
+
+  // Direct fetch from Supabase on mount to eliminate any refresh latency
+  useEffect(() => {
+    let isMounted = true;
+    const fetchDirect = async () => {
+      if (isSupabaseConnected() && customerId) {
+        try {
+          const { data } = await supabase
+            .from('customers')
+            .select('id, data')
+            .eq('id', customerId)
+            .maybeSingle();
+
+          if (data?.data && isMounted) {
+            const loaded = { ...data.data, id: data.id };
+            setProfileForm(loaded.profile || {});
+            setCvForm(loaded.cv || {});
+            setSocialForm(loaded.socialMedia || {});
+            setProjectsListForm(
+              (loaded.projects || []).map((p) => ({
+                ...p,
+                toolsStr: Array.isArray(p.tools) ? p.tools.join(', ') : (p.toolsStr || ''),
+              }))
+            );
+            setSettingsForm({
+              slug: loaded.slug || '',
+              pin: loaded.accessPin || loaded.pin || '1234',
+              isPublished: loaded.isPublished !== false,
+            });
+          }
+        } catch (e) {
+          console.warn('[CustomerEditor] Direct fetch error:', e);
+        }
+      }
+    };
+
+    fetchDirect();
+
+    // Listen to changes for this customer in realtime
+    if (isSupabaseConnected() && customerId) {
+      const channel = supabase
+        .channel(`editor_sync_${customerId}`)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'customers', filter: `id=eq.${customerId}` },
+          (payload) => {
+            if (payload.eventType === 'UPDATE') {
+              const rowData = payload.new?.data
+                ? { ...payload.new.data, id: payload.new.id || payload.new.data.id }
+                : payload.new;
+              if (rowData && isMounted) {
+                setProfileForm((prev) => ({ ...prev, ...(rowData.profile || {}) }));
+                if (rowData.projects) {
+                  setProjectsListForm(
+                    rowData.projects.map((p) => ({
+                      ...p,
+                      toolsStr: Array.isArray(p.tools) ? p.tools.join(', ') : (p.toolsStr || ''),
+                    }))
+                  );
+                }
+              }
+            }
+          }
+        )
+        .subscribe();
+
+      return () => {
+        isMounted = false;
+        supabase.removeChannel(channel);
+      };
+    }
+
+    return () => {
+      isMounted = false;
+    };
+  }, [customerId]);
 
   const triggerSaveToast = (msg) => {
     if (msg) setSaveToastMsg(msg);

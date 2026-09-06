@@ -637,20 +637,27 @@ export function PortfolioProvider({ children }) {
         { event: '*', schema: 'public', table: 'customers' },
         (payload) => {
           if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-            const rowData = payload.new?.data || payload.new;
+            const rowData = payload.new?.data
+              ? { ...payload.new.data, id: payload.new.id || payload.new.data.id }
+              : payload.new;
             if (rowData && rowData.id) {
               setCustomers((prev) => {
                 const exists = prev.some((c) => c.id === rowData.id);
-                if (exists) {
-                  return prev.map((c) => (c.id === rowData.id ? { ...c, ...rowData } : c));
-                }
-                return [rowData, ...prev];
+                const updated = exists
+                  ? prev.map((c) => (c.id === rowData.id ? { ...c, ...rowData } : c))
+                  : [rowData, ...prev];
+                writeLocal(LOCAL_KEYS.CUSTOMERS, updated);
+                return updated;
               });
             }
           } else if (payload.eventType === 'DELETE') {
             const deletedId = payload.old?.id;
             if (deletedId) {
-              setCustomers((prev) => prev.filter((c) => c.id !== deletedId));
+              setCustomers((prev) => {
+                const updated = prev.filter((c) => c.id !== deletedId);
+                writeLocal(LOCAL_KEYS.CUSTOMERS, updated);
+                return updated;
+              });
             }
           }
         }

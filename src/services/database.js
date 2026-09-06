@@ -7,6 +7,7 @@
  */
 
 import { supabase, isSupabaseConnected } from './supabase';
+export { supabase, isSupabaseConnected };
 
 // =========================================================================
 // LOCAL STORAGE KEYS
