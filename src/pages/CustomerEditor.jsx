@@ -83,6 +83,7 @@ export default function CustomerEditor() {
   const validTabs = ['page1', 'page2', 'page3', 'page4'];
   const currentTab = validTabs.includes(activeTab) ? activeTab : 'page1';
   const [saveToast, setSaveToast] = useState(false);
+  const [saveToastMsg, setSaveToastMsg] = useState('Perubahan berhasil disimpan dan langsung aktif di portofolio!');
   const [showPreviewModal, setShowPreviewModal] = useState(false);
 
   // Local Form States
@@ -155,9 +156,11 @@ export default function CustomerEditor() {
     }
   }, [foundCustomer]);
 
-  const triggerSaveToast = () => {
+  const triggerSaveToast = (msg) => {
+    if (msg) setSaveToastMsg(msg);
+    else setSaveToastMsg('Perubahan berhasil disimpan dan langsung aktif di portofolio!');
     setSaveToast(true);
-    setTimeout(() => setSaveToast(false), 2500);
+    setTimeout(() => setSaveToast(false), 3000);
   };
 
   const handleImageUpload = (e, callback) => {
@@ -172,7 +175,7 @@ export default function CustomerEditor() {
     reader.onload = (event) => {
       const img = new window.Image();
       img.onload = () => {
-        const maxDim = 1400;
+        const maxDim = 1200;
         let width = img.width;
         let height = img.height;
         if (width > maxDim || height > maxDim) {
@@ -198,9 +201,9 @@ export default function CustomerEditor() {
         if (isPng) {
           dataUrl = canvas.toDataURL('image/png');
         } else if (isWebp) {
-          dataUrl = canvas.toDataURL('image/webp', 0.92);
+          dataUrl = canvas.toDataURL('image/webp', 0.88);
         } else {
-          dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+          dataUrl = canvas.toDataURL('image/jpeg', 0.82);
         }
 
         callback(dataUrl);
@@ -211,21 +214,131 @@ export default function CustomerEditor() {
     e.target.value = '';
   };
 
+  // --- Auto-Save Photo Handlers ---
+  const handleAvatarChange = (e) => {
+    handleImageUpload(e, (dataUrl) => {
+      const updatedProfile = {
+        ...customer.profile,
+        ...profileForm,
+        avatarUrl: dataUrl,
+        aboutAvatarUrl: profileForm.aboutAvatarUrl || dataUrl,
+      };
+      setProfileForm(updatedProfile);
+      updateCustomer(customer.id, {
+        name: updatedProfile.fullName || customer.name,
+        profile: updatedProfile,
+      });
+      triggerSaveToast('✓ Foto ID Card 3D berhasil diunggah & langsung aktif di portofolio!');
+    });
+  };
+
+  const handleAvatarRemove = () => {
+    const updatedProfile = { ...customer.profile, ...profileForm, avatarUrl: '' };
+    setProfileForm(updatedProfile);
+    updateCustomer(customer.id, { profile: updatedProfile });
+    triggerSaveToast('✓ Foto ID Card dihapus');
+  };
+
+  const handleHeroPersonChange = (e) => {
+    handleImageUpload(e, (dataUrl) => {
+      const updatedProfile = {
+        ...customer.profile,
+        ...profileForm,
+        heroPersonUrl: dataUrl,
+      };
+      setProfileForm(updatedProfile);
+      updateCustomer(customer.id, { profile: updatedProfile });
+      triggerSaveToast('✓ Foto Orang Layar Utama berhasil diunggah & langsung aktif!');
+    });
+  };
+
+  const handleHeroPersonRemove = () => {
+    const updatedProfile = { ...customer.profile, ...profileForm, heroPersonUrl: '' };
+    setProfileForm(updatedProfile);
+    updateCustomer(customer.id, { profile: updatedProfile });
+    triggerSaveToast('✓ Foto Orang Layar Utama direset ke default');
+  };
+
+  const handleAboutAvatarChange = (e) => {
+    handleImageUpload(e, (dataUrl) => {
+      const updatedProfile = {
+        ...customer.profile,
+        ...profileForm,
+        aboutAvatarUrl: dataUrl,
+      };
+      setProfileForm(updatedProfile);
+      updateCustomer(customer.id, { profile: updatedProfile });
+      triggerSaveToast('✓ Foto Potret Halaman 2 berhasil diunggah & langsung aktif!');
+    });
+  };
+
+  const handleAboutAvatarRemove = () => {
+    const updatedProfile = { ...customer.profile, ...profileForm, aboutAvatarUrl: '' };
+    setProfileForm(updatedProfile);
+    updateCustomer(customer.id, { profile: updatedProfile });
+    triggerSaveToast('✓ Foto Potret Halaman 2 direset ke default');
+  };
+
+  const handleProjectCoverChange = (index, e) => {
+    handleImageUpload(e, (dataUrl) => {
+      const updated = projectsListForm.map((proj, i) => {
+        if (i === index) {
+          let tools = proj.tools;
+          if (typeof proj.toolsStr === 'string') {
+            tools = proj.toolsStr.split(',').map((t) => t.trim()).filter(Boolean);
+          }
+          return {
+            ...proj,
+            coverImage: dataUrl,
+            tools: tools || proj.tools || [],
+            filterCategory: proj.category || 'Mesin & Industri',
+          };
+        }
+        return proj;
+      });
+      setProjectsListForm(updated);
+      updateCustomer(customer.id, { projects: updated });
+      triggerSaveToast(`✓ Foto Projek #${String(index + 1).padStart(2, '0')} berhasil diunggah & tersimpan ke Cloud!`);
+    });
+  };
+
+  const handleProjectCoverRemove = (index) => {
+    const updated = projectsListForm.map((proj, i) => {
+      if (i === index) {
+        return { ...proj, coverImage: '' };
+      }
+      return proj;
+    });
+    setProjectsListForm(updated);
+    updateCustomer(customer.id, { projects: updated });
+    triggerSaveToast(`✓ Foto Projek #${String(index + 1).padStart(2, '0')} dihapus`);
+  };
+
   const handleCVFileUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     const reader = new FileReader();
     reader.onload = (event) => {
-      setCvForm((prev) => ({
-        ...prev,
+      const newCv = {
         fileName: file.name,
         fileUrl: event.target.result,
         fileSize: `${Math.round(file.size / 1024)} KB`,
         lastUpdated: new Date().toISOString().split('T')[0],
-      }));
+      };
+      setCvForm(newCv);
+      updateCustomer(customer.id, { cv: newCv });
+      triggerSaveToast('✓ File CV berhasil diunggah & langsung aktif!');
     };
     reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleCVFileRemove = () => {
+    const newCv = { fileName: '', fileUrl: '' };
+    setCvForm(newCv);
+    updateCustomer(customer.id, { cv: newCv });
+    triggerSaveToast('✓ File CV dihapus');
   };
 
   // --- Handlers: Save Sections ---
@@ -236,12 +349,12 @@ export default function CustomerEditor() {
       email: profileForm.email,
       profile: { ...customer.profile, ...profileForm },
     });
-    triggerSaveToast();
+    triggerSaveToast('✓ Data profil berhasil disimpan ke Cloud!');
   };
 
   const handleSaveProjectsList = (updatedProjects) => {
     updateCustomer(customer.id, { projects: updatedProjects });
-    triggerSaveToast();
+    triggerSaveToast('✓ Daftar projek berhasil disimpan ke Cloud!');
   };
 
   // --- Handlers: Projects Modal & Categories ---
@@ -717,7 +830,7 @@ export default function CustomerEditor() {
             className="fixed top-20 right-3 sm:right-6 z-50 px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-xl bg-emerald-950/90 border border-emerald-400/60 text-emerald-200 text-xs font-mono font-bold flex items-center gap-2 shadow-2xl backdrop-blur-md"
           >
             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span>Perubahan berhasil disimpan dan langsung aktif di portofolio!</span>
+            <span>{saveToastMsg}</span>
           </motion.div>
         )}
       </AnimatePresence>
@@ -862,7 +975,7 @@ export default function CustomerEditor() {
                           type="file"
                           accept="image/*"
                           className="hidden"
-                          onChange={(e) => handleImageUpload(e, (dataUrl) => setProfileForm({ ...profileForm, avatarUrl: dataUrl, aboutAvatarUrl: dataUrl }))}
+                          onChange={handleAvatarChange}
                         />
                       </label>
 
@@ -870,7 +983,7 @@ export default function CustomerEditor() {
                         <div>
                           <button
                             type="button"
-                            onClick={() => setProfileForm({ ...profileForm, avatarUrl: '', aboutAvatarUrl: '' })}
+                            onClick={handleAvatarRemove}
                             className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900 border border-rose-500/40 text-[11px] font-mono text-rose-300 hover:text-white transition-all cursor-pointer"
                           >
                             <Trash2 className="w-3 h-3" />
@@ -920,7 +1033,7 @@ export default function CustomerEditor() {
                           type="file"
                           accept="image/*"
                           className="hidden"
-                          onChange={(e) => handleImageUpload(e, (dataUrl) => setProfileForm({ ...profileForm, heroPersonUrl: dataUrl }))}
+                          onChange={handleHeroPersonChange}
                         />
                       </label>
 
@@ -928,7 +1041,7 @@ export default function CustomerEditor() {
                         <div>
                           <button
                             type="button"
-                            onClick={() => setProfileForm({ ...profileForm, heroPersonUrl: '' })}
+                            onClick={handleHeroPersonRemove}
                             className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900 border border-rose-500/40 text-[11px] font-mono text-rose-300 hover:text-white transition-all cursor-pointer"
                           >
                             <Trash2 className="w-3 h-3" />
@@ -1340,14 +1453,14 @@ export default function CustomerEditor() {
                           type="file"
                           accept="image/*"
                           className="hidden"
-                          onChange={(e) => handleImageUpload(e, (dataUrl) => setProfileForm({ ...profileForm, aboutAvatarUrl: dataUrl }))}
+                          onChange={handleAboutAvatarChange}
                         />
                       </label>
 
                       {profileForm.aboutAvatarUrl && (
                         <button
                           type="button"
-                          onClick={() => setProfileForm({ ...profileForm, aboutAvatarUrl: '' })}
+                          onClick={handleAboutAvatarRemove}
                           className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-rose-950/60 hover:bg-rose-900 border border-rose-500/40 text-xs font-mono text-rose-300 hover:text-white transition-all cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -1998,7 +2111,7 @@ export default function CustomerEditor() {
                       {cvForm.fileUrl && (
                         <button
                           type="button"
-                          onClick={() => setCvForm({ ...cvForm, fileName: '', fileUrl: '' })}
+                          onClick={handleCVFileRemove}
                           className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-rose-950/60 hover:bg-rose-900 border border-rose-500/40 text-xs font-mono text-rose-300 hover:text-white transition-all cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -2326,14 +2439,14 @@ export default function CustomerEditor() {
                                     type="file"
                                     accept="image/*"
                                     className="hidden"
-                                    onChange={(e) => handleImageUpload(e, (dataUrl) => handleUpdateProjectField(idx, 'coverImage', dataUrl))}
+                                    onChange={(e) => handleProjectCoverChange(idx, e)}
                                   />
                                 </label>
 
                                 {proj.coverImage && (
                                   <button
                                     type="button"
-                                    onClick={() => handleUpdateProjectField(idx, 'coverImage', '')}
+                                    onClick={() => handleProjectCoverRemove(idx)}
                                     className="w-full py-1.5 rounded-xl bg-rose-950/60 hover:bg-rose-900 border border-rose-500/40 text-rose-300 text-xs font-mono cursor-pointer transition-colors"
                                   >
                                     Hapus Foto

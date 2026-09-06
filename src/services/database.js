@@ -148,7 +148,7 @@ export const db = {
       const list = readLocal(LOCAL_KEYS.CUSTOMERS, []);
       const localTarget = list.find((c) => c.id === id) || {};
 
-      let merged = { ...localTarget, ...updatedData, id };
+      let baseObj = localTarget;
 
       if (isSupabaseConnected()) {
         try {
@@ -159,12 +159,42 @@ export const db = {
             .maybeSingle();
 
           if (cloudRow?.data) {
-            merged = { ...cloudRow.data, ...updatedData, id };
+            baseObj = cloudRow.data;
           }
+        } catch (e) {
+          console.warn('[DB Cloud] customers.update read failed:', e);
+        }
+      }
 
-          const updatedList = [merged, ...list.filter((c) => c.id !== id)];
-          writeLocal(LOCAL_KEYS.CUSTOMERS, updatedList);
+      const merged = {
+        ...baseObj,
+        ...updatedData,
+        id,
+        profile: updatedData.profile
+          ? { ...(baseObj.profile || {}), ...updatedData.profile }
+          : baseObj.profile,
+        socialMedia: updatedData.socialMedia
+          ? { ...(baseObj.socialMedia || {}), ...updatedData.socialMedia }
+          : baseObj.socialMedia,
+        cv: updatedData.cv
+          ? { ...(baseObj.cv || {}), ...updatedData.cv }
+          : baseObj.cv,
+        projects: updatedData.projects !== undefined
+          ? updatedData.projects
+          : baseObj.projects,
+        skills: updatedData.skills !== undefined
+          ? updatedData.skills
+          : baseObj.skills,
+        certificates: updatedData.certificates !== undefined
+          ? updatedData.certificates
+          : baseObj.certificates,
+      };
 
+      const updatedList = [merged, ...list.filter((c) => c.id !== id)];
+      writeLocal(LOCAL_KEYS.CUSTOMERS, updatedList);
+
+      if (isSupabaseConnected()) {
+        try {
           const { error } = await supabase
             .from('customers')
             .upsert({
@@ -177,9 +207,6 @@ export const db = {
         } catch (e) {
           console.error('[DB Cloud] customers.update exception:', e);
         }
-      } else {
-        const updatedList = [merged, ...list.filter((c) => c.id !== id)];
-        writeLocal(LOCAL_KEYS.CUSTOMERS, updatedList);
       }
       return true;
     },
