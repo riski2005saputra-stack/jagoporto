@@ -18,7 +18,10 @@ export default function Projects({ customData }) {
   const [activeCategory, setActiveCategory] = useState('Semua');
   const [selectedProject, setSelectedProject] = useState(null);
 
-  const projectsList = data?.projects && data.projects.length > 0 ? data.projects : PROJECTS_DATA;
+  const isCustomPortfolio = !!customData;
+  const projectsList = isCustomPortfolio
+    ? (Array.isArray(customData.projects) ? customData.projects : [])
+    : (data?.projects && data.projects.length > 0 ? data.projects : PROJECTS_DATA);
 
   // Determine available categories dynamically
   const availableCategories = data?.projectCategories && data.projectCategories.length > 0
@@ -198,93 +201,114 @@ export default function Projects({ customData }) {
         {/* ========================================================================= */}
         {/* RESPONSIVE 3-COLUMN CARDS GRID (3 Desktop, 2 Tablet, 1 Mobile) */}
         {/* ========================================================================= */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-7 mb-12">
-          <AnimatePresence mode="popLayout">
-            {filteredProjects.map((project, idx) => {
-              const projectNumber = String(idx + 1).padStart(2, '0');
-              const isWeb = project.type === 'webapp' || project.type === 'template';
+        {projectsList.length === 0 ? (
+          <div className="p-8 sm:p-14 rounded-3xl bg-[#120409]/60 border border-[#3D0B18]/80 text-center space-y-3 sm:space-y-4 max-w-xl mx-auto mb-12 shadow-2xl backdrop-blur-xl">
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-slate-500">
+              <Code2 className="w-7 h-7 text-[#D7354D]/70" />
+            </div>
+            <h3 className="text-base sm:text-lg font-bold text-white font-sans">
+              Belum Ada Projek yang Ditambahkan
+            </h3>
+            <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto leading-relaxed">
+              Karya dan dokumentasi projek dapat ditambahkan dan diatur oleh pemilik akun melalui Menu Editor.
+            </p>
+          </div>
+        ) : filteredProjects.length === 0 ? (
+          <div className="p-8 sm:p-12 rounded-2xl bg-[#120409]/60 border border-[#3D0B18]/60 text-center space-y-2 max-w-md mx-auto mb-12">
+            <p className="text-xs sm:text-sm text-slate-400">
+              Belum ada projek dalam kategori <strong>"{activeCategory}"</strong>.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-7 mb-12">
+            <AnimatePresence mode="popLayout">
+              {filteredProjects.map((project, idx) => {
+                const projectNumber = String(idx + 1).padStart(2, '0');
+                const isWeb = project.type === 'webapp' || project.type === 'template';
 
-              return (
-                <motion.div
-                  key={project.id}
-                  layout
-                  initial={{ opacity: 0, y: 35, scale: 0.94 }}
-                  whileInView={{ opacity: 1, y: 0, scale: 1 }}
-                  viewport={{ once: true }}
-                  transition={{
-                    duration: 0.45,
-                    delay: idx * 0.04,
-                    ease: [0.16, 1, 0.3, 1],
-                  }}
-                  onClick={() => setSelectedProject(project)}
-                  className="group relative rounded-2xl bg-[#120409]/80 backdrop-blur-2xl border border-[#3D0B18]/80 hover:border-[#A51D35] transition-all duration-400 flex flex-col justify-between overflow-hidden shadow-[0_15px_35px_rgba(0,0,0,0.85)] hover:shadow-[0_0_35px_rgba(165,29,53,0.4)] hover:-translate-y-2 cursor-pointer"
-                >
-                  {/* Subtle Background Radial Glow on Hover */}
-                  <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#641326]/10 to-[#A51D35]/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
+                return (
+                  <motion.div
+                    key={project.id}
+                    layout
+                    initial={{ opacity: 0, y: 35, scale: 0.94 }}
+                    whileInView={{ opacity: 1, y: 0, scale: 1 }}
+                    viewport={{ once: true }}
+                    transition={{
+                      duration: 0.45,
+                      delay: idx * 0.04,
+                      ease: [0.16, 1, 0.3, 1],
+                    }}
+                    onClick={() => setSelectedProject(project)}
+                    className="group relative rounded-2xl bg-[#120409]/80 backdrop-blur-2xl border border-[#3D0B18]/80 hover:border-[#A51D35] transition-all duration-400 flex flex-col justify-between overflow-hidden shadow-[0_15px_35px_rgba(0,0,0,0.85)] hover:shadow-[0_0_35px_rgba(165,29,53,0.4)] hover:-translate-y-2 cursor-pointer"
+                  >
+                    {/* Subtle Background Radial Glow on Hover */}
+                    <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#641326]/10 to-[#A51D35]/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
 
-                  {/* Horizontal Laser Scanning Line Sweep (Animates Across on Hover) */}
-                  <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-[#D7354D] to-transparent opacity-0 group-hover:opacity-100 group-hover:top-full transition-all duration-1000 ease-in-out pointer-events-none shadow-[0_0_10px_#D7354D]" />
-
-                  {/* TOP HEADER: Project Number + Category Badge */}
-                  <div className="p-4 sm:p-5 pb-3 flex items-center justify-between z-10">
-                    <span className="text-xl sm:text-2xl font-mono font-black text-[#A51D35] group-hover:text-[#D7354D] group-hover:scale-110 transition-all duration-300 tracking-tighter">
-                      #{projectNumber}
-                    </span>
-                    <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-mono font-bold uppercase tracking-wider shadow-sm ${
-                      isWeb 
-                        ? 'bg-amber-500/15 border border-amber-400/40 text-amber-300'
-                        : 'bg-[#240812] border border-[#641326] text-rose-200'
-                    }`}>
-                      {project.subCategory || project.category}
-                    </span>
-                  </div>
-
-                  {/* PROJECT PREVIEW IMAGE CONTAINER */}
-                  <div className="relative h-44 sm:h-48 w-full overflow-hidden bg-black/90 mx-auto px-4">
-                    <div className="relative w-full h-full rounded-xl overflow-hidden border border-[#3D0B18]/60 group-hover:border-[#641326] transition-colors">
-                      <img
-                        src={project.coverImage}
-                        alt={project.title}
-                        className="w-full h-full object-cover group-hover:scale-108 transition-transform duration-700 filter brightness-95 group-hover:brightness-105"
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-[#120409] via-black/20 to-transparent" />
+                    {/* TOP HALF: 16:9 IMAGE HERO WITH DYNAMIC BADGES */}
+                    <div className="relative h-48 sm:h-52 w-full overflow-hidden bg-black/60">
+                      {project.coverImage ? (
+                        <img
+                          src={project.coverImage}
+                          alt={project.title}
+                          className="w-full h-full object-cover object-center group-hover:scale-110 transition-transform duration-700 ease-out"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex flex-col items-center justify-center text-slate-600 font-mono text-xs gap-1">
+                          <Code2 className="w-8 h-8 opacity-40" />
+                          <span>Dokumentasi Teknis</span>
+                        </div>
+                      )}
                       
-                      {/* Top Right Quick Icon */}
-                      <div className="absolute top-2.5 right-2.5 opacity-0 group-hover:opacity-100 transition-all duration-300 bg-black/85 backdrop-blur-md border border-[#A51D35]/70 p-1.5 rounded-lg text-white shadow-lg">
-                        {isWeb ? (
-                          <Globe className="w-3.5 h-3.5 text-amber-400" />
-                        ) : (
-                          <ExternalLink className="w-3.5 h-3.5 text-[#D7354D]" />
-                        )}
+                      <div className="absolute inset-0 bg-gradient-to-t from-[#120409] via-transparent to-black/30" />
+
+                      {/* Number Badge Top Left */}
+                      <div className="absolute top-3 left-3 px-2.5 py-0.5 rounded-lg bg-black/80 border border-[#641326] text-[10px] font-mono font-bold text-slate-300 backdrop-blur-md">
+                        #{projectNumber}
                       </div>
+
+                      {/* Category Badge Top Right */}
+                      <div className="absolute top-3 right-3 px-2.5 py-0.5 rounded-lg bg-[#641326]/90 border border-[#A51D35] text-[10px] font-mono font-bold text-white uppercase tracking-wider backdrop-blur-md">
+                        {project.category}
+                      </div>
+
+                      {/* Live Url indicator badge */}
+                      {project.liveUrl && (
+                        <div className="absolute bottom-3 right-3 px-2 py-0.5 rounded bg-emerald-950/90 border border-emerald-500/50 text-[9.5px] font-mono font-bold text-emerald-300 flex items-center gap-1">
+                          <Globe className="w-3 h-3 text-emerald-400" />
+                          <span>LIVE</span>
+                        </div>
+                      )}
                     </div>
-                  </div>
 
-                  {/* CARD BODY CONTENT */}
-                  <div className="p-4 sm:p-5 pt-3.5 flex-1 flex flex-col justify-between z-10">
-                    <div>
-                      {/* Project Title */}
-                      <h3 className="text-lg sm:text-xl font-black text-white group-hover:text-rose-200 transition-colors uppercase tracking-tight font-sans mb-2 leading-snug">
-                        {project.title}
-                      </h3>
+                    {/* BOTTOM HALF: SPECS & 3 PILLARS */}
+                    <div className="p-4 sm:p-5 flex flex-col justify-between flex-grow space-y-3.5">
+                      <div>
+                        {/* Sub Category */}
+                        <div className="text-[10.5px] font-mono font-bold text-[#D7354D] uppercase tracking-wider mb-1">
+                          {project.subCategory || project.category}
+                        </div>
 
-                      {/* Short Description */}
-                      <p className="text-xs sm:text-[12.5px] text-slate-300 leading-relaxed line-clamp-2 mb-4 font-sans">
-                        {project.shortDesc}
-                      </p>
+                        {/* Title */}
+                        <h4 className="text-sm sm:text-base font-bold text-white font-sans leading-snug group-hover:text-[#D7354D] transition-colors line-clamp-2">
+                          {project.title}
+                        </h4>
 
-                      {/* ========================================================= */}
-                      {/* 3 BADGES: DESIGN / ANALYSIS / FABRICATION */}
-                      {/* ========================================================= */}
-                      <div className="space-y-1.5 mb-4 pt-2 border-t border-[#3D0B18]/60">
-                        {/* 1. DESIGN BADGE */}
+                        {/* Short Description */}
+                        <p className="text-xs text-slate-300 font-sans mt-1.5 line-clamp-2 leading-relaxed">
+                          {project.shortDesc}
+                        </p>
+                      </div>
+
+                      {/* 3 ENGINEERING PILLARS */}
+                      <div className="space-y-1.5 pt-2 border-t border-[#3D0B18]/60">
+                        {/* 1. PLANNING BADGE */}
                         <div className="flex items-center justify-between p-1.5 rounded-lg bg-[#240812]/50 border border-[#3D0B18]/50 text-[10.5px]">
                           <span className="font-mono font-bold text-[#D7354D] uppercase flex items-center gap-1.5">
-                            {isWeb ? <Code2 className="w-3 h-3 text-[#D7354D]" /> : <Compass className="w-3 h-3 text-[#D7354D]" />}
-                            {isWeb ? 'PLATFORM' : 'DESIGN'}
+                            <Compass className="w-3 h-3 text-[#D7354D]" />
+                            {isWeb ? 'ARCHITECTURE' : 'PLANNING'}
                           </span>
-                          <span className="font-semibold text-slate-200 font-sans truncate max-w-[170px] text-right">
-                            {isWeb ? 'React.js & Web App' : 'Autodesk Inventor'}
+                          <span className="font-medium text-slate-300 font-sans truncate max-w-[170px] text-right">
+                            {isWeb ? 'System Design & Wireframe' : '3D CAD & Geometric Design'}
                           </span>
                         </div>
 
@@ -292,10 +316,10 @@ export default function Projects({ customData }) {
                         <div className="flex items-center justify-between p-1.5 rounded-lg bg-[#240812]/50 border border-[#3D0B18]/50 text-[10.5px]">
                           <span className="font-mono font-bold text-rose-300 uppercase flex items-center gap-1.5">
                             <Cpu className="w-3 h-3 text-rose-300" />
-                            {isWeb ? 'UI/UX & DATA' : 'ANALYSIS'}
+                            {isWeb ? 'TESTING' : 'ANALYSIS'}
                           </span>
                           <span className="font-medium text-slate-300 font-sans truncate max-w-[170px] text-right">
-                            {isWeb ? 'Real-time Telemetry / 3D' : 'Engineering Analysis'}
+                            {isWeb ? 'Security & Performance Audit' : 'FEA Simulation & Stress Test'}
                           </span>
                         </div>
 
@@ -310,22 +334,22 @@ export default function Projects({ customData }) {
                           </span>
                         </div>
                       </div>
-                    </div>
 
-                    {/* ACTION FOOTER */}
-                    <div className="pt-2.5 border-t border-[#3D0B18]/60 flex items-center justify-between text-xs font-semibold text-slate-300 group-hover:text-white transition-colors">
-                      <span className="font-mono text-[11px] text-[#D7354D] group-hover:underline flex items-center gap-1.5">
-                        <Sparkles className="w-3 h-3 text-[#D7354D]" />
-                        {isWeb ? 'Lihat Detail & Link Web' : 'Eksplorasi Blueprint Teknis'}
-                      </span>
-                      <ArrowRight className="w-4 h-4 text-[#D7354D] group-hover:translate-x-1.5 transition-transform duration-300" />
+                      {/* ACTION FOOTER */}
+                      <div className="pt-2.5 border-t border-[#3D0B18]/60 flex items-center justify-between text-xs font-semibold text-slate-300 group-hover:text-white transition-colors">
+                        <span className="font-mono text-[11px] text-[#D7354D] group-hover:underline flex items-center gap-1.5">
+                          <Sparkles className="w-3 h-3 text-[#D7354D]" />
+                          {isWeb ? 'Lihat Detail & Link Web' : 'Eksplorasi Blueprint Teknis'}
+                        </span>
+                        <ArrowRight className="w-4 h-4 text-[#D7354D] group-hover:translate-x-1.5 transition-transform duration-300" />
+                      </div>
                     </div>
-                  </div>
-                </motion.div>
-              );
-            })}
-          </AnimatePresence>
-        </div>
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
+          </div>
+        )}
 
         {/* BOTTOM METALLIC FOOTER SUMMARY */}
         <div className="flex flex-col items-center text-center pt-6 border-t border-[#3D0B18]/60">

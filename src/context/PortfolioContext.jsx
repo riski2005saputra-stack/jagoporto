@@ -939,22 +939,7 @@ export function PortfolioProvider({ children }) {
         { id: `sk-c2-${Date.now()}`, name: 'Structural Strength Analysis', level: 'Advanced', category: 'Engineering' },
         { id: `sk-c3-${Date.now()}`, name: 'Project Management & Planning', level: 'Expert', category: 'Management' },
       ],
-      projects: [
-        {
-          id: `proj-c1-${Date.now()}`,
-          title: 'Perancangan Sistem Mekanikal & Otomasi',
-          category: 'Mechanical Engineer',
-          subCategory: 'Projek Industri Utama',
-          type: 'mechanical',
-          liveUrl: '',
-          coverImage: ownerData.projects[0]?.coverImage || '',
-          shortDesc: 'Pengembangan dan perancangan sistem mekanikal inovatif dengan analisis efisiensi kerja tinggi.',
-          planning: 'Perancangan konsep 3D CAD dan kalkulasi beban',
-          analysis: 'Simulasi finite element analysis dan uji kelelahan bahan',
-          fabrication: 'Pemesinan presisi, perakitan, dan pengujian lapangan',
-          tools: ['Autodesk Inventor', 'SolidWorks', 'FEA Analysis'],
-        },
-      ],
+      projects: [],
       certificates: [
         {
           id: `cert-c1-${Date.now()}`,

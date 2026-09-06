@@ -43,7 +43,7 @@ export default function About3DCarousel({ onOpenModal, activeIndex: controlledIn
       type: 'projects',
       badge: 'PORTFOLIO',
       title: data?.profile?.card1Title || 'VIEW PROJECTS',
-      subtitle: `${data?.projects?.length || 13} Koleksi Karya Inovatif`,
+      subtitle: `${data?.projects?.length || 0} Koleksi Karya Inovatif`,
       description: data?.profile?.card1Desc || 'Lihat semua projek yang pernah saya kerjakan dalam industri manufaktur, perancangan mesin, dan web apps.',
       buttonText: 'Lihat Projek',
       buttonIcon: ArrowRight,
