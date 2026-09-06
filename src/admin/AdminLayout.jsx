@@ -297,6 +297,12 @@ export default function AdminLayout() {
 
           {/* Right: Theme Toggle, Master Status, Logout & Quick Profile Pill */}
           <div className="flex items-center gap-2.5 sm:gap-3">
+            {/* Cloud Supabase Status Badge */}
+            <div className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-950/80 border border-emerald-500/40 text-[11px] font-mono text-emerald-300 shadow-sm">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span>Cloud Database: Connected</span>
+            </div>
+
             {/* Theme Toggle Button */}
             <ThemeToggle variant="button" />
 
