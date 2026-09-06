@@ -192,6 +192,17 @@ export const db = {
 
       if (isSupabaseConnected()) {
         try {
+          // 1. Delete removed customer IDs from Supabase
+          const { data: currentRows } = await supabase.from('customers').select('id');
+          const currentIds = (currentRows || []).map((r) => r.id);
+          const newIds = new Set(customersArray.map((c) => c.id));
+          const toDelete = currentIds.filter((id) => !newIds.has(id));
+
+          if (toDelete.length > 0) {
+            await supabase.from('customers').delete().in('id', toDelete);
+          }
+
+          // 2. Upsert remaining customers
           const rows = customersArray.map((c) => ({
             id: c.id,
             data: c,
@@ -306,6 +317,17 @@ export const db = {
 
       if (isSupabaseConnected()) {
         try {
+          // 1. Delete removed template IDs from Supabase
+          const { data: currentRows } = await supabase.from('templates').select('id');
+          const currentIds = (currentRows || []).map((r) => r.id);
+          const newIds = new Set(templatesArray.map((t) => t.id));
+          const toDelete = currentIds.filter((id) => !newIds.has(id));
+
+          if (toDelete.length > 0) {
+            await supabase.from('templates').delete().in('id', toDelete);
+          }
+
+          // 2. Upsert remaining templates
           const rows = templatesArray.map((t) => ({
             id: t.id,
             data: t,
@@ -416,6 +438,17 @@ export const db = {
 
       if (isSupabaseConnected()) {
         try {
+          // 1. Delete removed transaction IDs from Supabase
+          const { data: currentRows } = await supabase.from('transactions').select('id');
+          const currentIds = (currentRows || []).map((r) => r.id);
+          const newIds = new Set(txArray.map((t) => t.id));
+          const toDelete = currentIds.filter((id) => !newIds.has(id));
+
+          if (toDelete.length > 0) {
+            await supabase.from('transactions').delete().in('id', toDelete);
+          }
+
+          // 2. Upsert remaining transactions
           const rows = txArray.map((t) => ({
             id: t.id,
             data: t,
