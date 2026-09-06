@@ -66,11 +66,10 @@ export default function CustomersPlaceholder() {
                 <button
                   type="button"
                   onClick={() => toggleCustomerStatus(c.id)}
-                  className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full uppercase transition-all cursor-pointer ${
-                    c.status === 'active'
+                  className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full uppercase transition-all cursor-pointer ${c.status === 'active'
                       ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/40'
                       : 'bg-slate-700/40 text-slate-400 border border-slate-600'
-                  }`}
+                    }`}
                 >
                   {c.status} (Klik Toggle)
                 </button>

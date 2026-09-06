@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { PROJECTS_DATA } from '../data/projects';
 import riskiPortrait from '../assets/riski-portrait.jpg';
 import riskiAboutPortrait from '../assets/riski-about-portrait.jpg';
@@ -488,133 +488,31 @@ const DEFAULT_PRICING_FAQS = [
 
 const PortfolioContext = createContext(null);
 
-const STORAGE_KEYS = {
-  OWNER: 'riski_owner_portfolio_v1',
-  CUSTOMERS: 'riski_customers_list_v1',
-  TEMPLATES: 'riski_templates_list_v1',
-  TEMPLATE_CONFIG: 'riski_template_config_v1',
-  TRANSACTIONS: 'riski_transactions_list_v1',
-  PAYMENT_SETTINGS: 'riski_payment_settings_v1',
-  PRICING_PACKAGES: 'riski_pricing_packages_v1',
-  PRICING_FAQS: 'riski_pricing_faqs_v1',
-};
-
 export function PortfolioProvider({ children }) {
+  // Loading state for cloud data fetch
+  const [isLoading, setIsLoading] = useState(true);
+  const hasFetchedRef = useRef(false);
+
   // 1. Owner Data State (OWNER-001)
-  const [ownerData, setOwnerData] = useState(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.OWNER);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        return {
-          ...DEFAULT_OWNER_DATA,
-          ...parsed,
-          projects: parsed.projects && parsed.projects.length > 0 ? parsed.projects : DEFAULT_OWNER_DATA.projects,
-        };
-      }
-    } catch (e) {
-      console.warn('Error reading owner data from storage', e);
-    }
-    return DEFAULT_OWNER_DATA;
-  });
+  const [ownerData, setOwnerData] = useState(DEFAULT_OWNER_DATA);
 
   // 2. Customers List State
-  const [customers, setCustomers] = useState(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.CUSTOMERS);
-      if (saved !== null) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          return parsed;
-        }
-      }
-    } catch (e) {
-      console.warn('Error reading customers from storage', e);
-    }
-    return DEFAULT_CUSTOMERS;
-  });
+  const [customers, setCustomers] = useState(DEFAULT_CUSTOMERS);
 
-  // 3. Templates Catalog State (Enables Admin to add/manage new templates)
-  const [templates, setTemplates] = useState(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.TEMPLATES);
-      if (saved !== null) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
-      }
-    } catch (e) {
-      console.warn('Error reading templates from storage', e);
-    }
-    return DEFAULT_TEMPLATES;
-  });
+  // 3. Templates Catalog State
+  const [templates, setTemplates] = useState(DEFAULT_TEMPLATES);
 
   // 4. Transactions / Orders State
-  const [transactions, setTransactions] = useState(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.TRANSACTIONS);
-      if (saved !== null) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
-      }
-    } catch (e) {
-      console.warn('Error reading transactions from storage', e);
-    }
-    return DEFAULT_TRANSACTIONS;
-  });
+  const [transactions, setTransactions] = useState(DEFAULT_TRANSACTIONS);
 
   // 5. Payment Configuration State
-  const [paymentSettings, setPaymentSettings] = useState(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.PAYMENT_SETTINGS);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed && typeof parsed === 'object') {
-          const updatedBanks = (parsed.bankAccounts || DEFAULT_PAYMENT_SETTINGS.bankAccounts).map((b) =>
-            b.bank && b.bank.includes('BCA')
-              ? { ...b, bank: 'BNI (Bank Negara Indonesia)' }
-              : b
-          );
-          return {
-            ...DEFAULT_PAYMENT_SETTINGS,
-            ...parsed,
-            bankAccounts: updatedBanks,
-            qrisUrl: parsed.qrisUrl && parsed.qrisUrl.includes('qrserver') ? '/qris-card.png' : (parsed.qrisUrl || '/qris-card.png'),
-          };
-        }
-      }
-    } catch (e) {
-      console.warn('Error reading payment settings from storage', e);
-    }
-    return DEFAULT_PAYMENT_SETTINGS;
-  });
+  const [paymentSettings, setPaymentSettings] = useState(DEFAULT_PAYMENT_SETTINGS);
 
-  // 6. Pricing Packages State for Template Store
-  const [pricingPackages, setPricingPackages] = useState(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.PRICING_PACKAGES);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch (e) {
-      console.warn('Error reading pricing packages from storage', e);
-    }
-    return DEFAULT_PRICING_PACKAGES;
-  });
+  // 6. Pricing Packages State
+  const [pricingPackages, setPricingPackages] = useState(DEFAULT_PRICING_PACKAGES);
 
   // 7. Pricing FAQ State
-  const [pricingFaqs, setPricingFaqs] = useState(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.PRICING_FAQS);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch (e) {
-      console.warn('Error reading pricing FAQs from storage', e);
-    }
-    return DEFAULT_PRICING_FAQS;
-  });
+  const [pricingFaqs, setPricingFaqs] = useState(DEFAULT_PRICING_FAQS);
 
   // 8. Template Version Info
   const [templateConfig] = useState({
@@ -633,64 +531,122 @@ export function PortfolioProvider({ children }) {
     ],
   });
 
-  // Sync to database and localStorage
+  // =======================================================================
+  // INITIAL DATA FETCH — Load from Supabase (or localStorage fallback)
+  // =======================================================================
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.OWNER, JSON.stringify(ownerData));
-      // Auto-sync database tables
-      db.profiles.update('OWNER-001', { ...ownerData.profile, socialMedia: ownerData.socialMedia, cv: ownerData.cv });
-    } catch (e) {
-      console.warn('Failed saving ownerData to storage', e);
-    }
-  }, [ownerData]);
+    if (hasFetchedRef.current) return;
+    hasFetchedRef.current = true;
+
+    const loadAllData = async () => {
+      try {
+        // Fetch all data in parallel
+        const [
+          cloudOwner,
+          cloudCustomers,
+          cloudTemplates,
+          cloudTransactions,
+          cloudPayment,
+          cloudPricing,
+          cloudFaqs,
+        ] = await Promise.all([
+          db.ownerData.get(),
+          db.customers.list(),
+          db.templates.list(),
+          db.transactions.list(),
+          db.paymentSettings.get(),
+          db.pricingPackages.list(),
+          db.pricingFaqs.list(),
+        ]);
+
+        // Only update state if cloud data exists (non-empty)
+        if (cloudOwner) {
+          setOwnerData((prev) => ({
+            ...prev,
+            ...cloudOwner,
+            projects: cloudOwner.projects && cloudOwner.projects.length > 0
+              ? cloudOwner.projects
+              : prev.projects,
+          }));
+        }
+        if (cloudCustomers && cloudCustomers.length > 0) {
+          setCustomers(cloudCustomers);
+        }
+        if (cloudTemplates && cloudTemplates.length > 0) {
+          setTemplates(cloudTemplates);
+        }
+        if (cloudTransactions && cloudTransactions.length > 0) {
+          setTransactions(cloudTransactions);
+        }
+        if (cloudPayment) {
+          setPaymentSettings((prev) => ({ ...prev, ...cloudPayment }));
+        }
+        if (cloudPricing && cloudPricing.length > 0) {
+          setPricingPackages(cloudPricing);
+        }
+        if (cloudFaqs && cloudFaqs.length > 0) {
+          setPricingFaqs(cloudFaqs);
+        }
+      } catch (err) {
+        console.warn('[PortfolioContext] Failed loading cloud data, using defaults:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadAllData();
+  }, []);
+
+  // =======================================================================
+  // AUTO-SAVE TO DATABASE (Supabase or localStorage)
+  // Debounced: saves after data changes settle
+  // =======================================================================
+  const saveTimerRef = useRef({});
+
+  const debouncedSave = useCallback((key, saveFn, data) => {
+    if (isLoading) return; // Don't save during initial load
+    clearTimeout(saveTimerRef.current[key]);
+    saveTimerRef.current[key] = setTimeout(() => {
+      saveFn(data).catch((err) =>
+        console.warn(`[PortfolioContext] Failed saving ${key}:`, err)
+      );
+    }, 500); // 500ms debounce
+  }, [isLoading]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.CUSTOMERS, JSON.stringify(customers));
-    } catch (e) {
-      console.warn('Failed saving customers to storage', e);
-    }
-  }, [customers]);
+    if (isLoading) return;
+    debouncedSave('owner', db.ownerData.save, ownerData);
+  }, [ownerData, isLoading, debouncedSave]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.TEMPLATES, JSON.stringify(templates));
-    } catch (e) {
-      console.warn('Failed saving templates to storage', e);
-    }
-  }, [templates]);
+    if (isLoading) return;
+    debouncedSave('customers', db.customers.saveAll, customers);
+  }, [customers, isLoading, debouncedSave]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(transactions));
-    } catch (e) {
-      console.warn('Failed saving transactions to storage', e);
-    }
-  }, [transactions]);
+    if (isLoading) return;
+    debouncedSave('templates', db.templates.saveAll, templates);
+  }, [templates, isLoading, debouncedSave]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.PAYMENT_SETTINGS, JSON.stringify(paymentSettings));
-    } catch (e) {
-      console.warn('Failed saving paymentSettings to storage', e);
-    }
-  }, [paymentSettings]);
+    if (isLoading) return;
+    debouncedSave('transactions', db.transactions.saveAll, transactions);
+  }, [transactions, isLoading, debouncedSave]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.PRICING_PACKAGES, JSON.stringify(pricingPackages));
-    } catch (e) {
-      console.warn('Failed saving pricing packages to storage', e);
-    }
-  }, [pricingPackages]);
+    if (isLoading) return;
+    debouncedSave('payment', db.paymentSettings.save, paymentSettings);
+  }, [paymentSettings, isLoading, debouncedSave]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.PRICING_FAQS, JSON.stringify(pricingFaqs));
-    } catch (e) {
-      console.warn('Failed saving pricing FAQs to storage', e);
-    }
-  }, [pricingFaqs]);
+    if (isLoading) return;
+    debouncedSave('pricing', db.pricingPackages.saveAll, pricingPackages);
+  }, [pricingPackages, isLoading, debouncedSave]);
+
+  useEffect(() => {
+    if (isLoading) return;
+    debouncedSave('faqs', db.pricingFaqs.saveAll, pricingFaqs);
+  }, [pricingFaqs, isLoading, debouncedSave]);
 
   // Pricing Packages Actions
   const updatePricingPackage = (pkgId, updatedData) => {
@@ -732,17 +688,14 @@ export function PortfolioProvider({ children }) {
   const resetPricingToDefault = () => {
     setPricingPackages(DEFAULT_PRICING_PACKAGES);
     setPricingFaqs(DEFAULT_PRICING_FAQS);
-    localStorage.removeItem(STORAGE_KEYS.PRICING_PACKAGES);
-    localStorage.removeItem(STORAGE_KEYS.PRICING_FAQS);
   };
 
-  // Actions for My Portfolio (OWNER-001) connected directly to Database
+  // Actions for My Portfolio (OWNER-001)
   const updateOwnerProfile = async (newProfile) => {
     setOwnerData((prev) => ({
       ...prev,
       profile: { ...prev.profile, ...newProfile },
     }));
-    await db.profiles.update('OWNER-001', newProfile);
   };
 
   const updateOwnerProjects = (newProjects) => {
@@ -762,7 +715,6 @@ export function PortfolioProvider({ children }) {
       ...prev,
       projects: [newProj, ...prev.projects],
     }));
-    await db.projects.create(newProj);
   };
 
   const deleteOwnerProject = async (projectId) => {
@@ -770,7 +722,6 @@ export function PortfolioProvider({ children }) {
       ...prev,
       projects: prev.projects.filter((p) => p.id !== projectId),
     }));
-    await db.projects.delete(projectId);
   };
 
   const updateOwnerSkills = async (newSkills) => {
@@ -875,7 +826,6 @@ export function PortfolioProvider({ children }) {
     };
 
     setCustomers((prev) => [newCustomer, ...prev]);
-    await db.customers.create(newCustomer);
     return newCustomer;
   };
 
@@ -883,20 +833,10 @@ export function PortfolioProvider({ children }) {
     setCustomers((prev) =>
       prev.map((c) => (c.id === customerId ? { ...c, ...updatedData } : c))
     );
-    await db.customers.update(customerId, updatedData);
   };
 
   const deleteCustomer = async (customerId) => {
-    setCustomers((prev) => {
-      const filtered = prev.filter((c) => c.id !== customerId);
-      try {
-        localStorage.setItem(STORAGE_KEYS.CUSTOMERS, JSON.stringify(filtered));
-      } catch (e) {
-        console.warn('Failed saving customers to storage', e);
-      }
-      return filtered;
-    });
-    await db.customers.delete(customerId);
+    setCustomers((prev) => prev.filter((c) => c.id !== customerId));
   };
 
   const toggleCustomerStatus = async (customerId) => {
@@ -906,7 +846,6 @@ export function PortfolioProvider({ children }) {
     setCustomers((prev) =>
       prev.map((c) => (c.id === customerId ? { ...c, status: newStatus } : c))
     );
-    await db.customers.update(customerId, { status: newStatus });
   };
 
   const resetCustomerData = async (customerId) => {
@@ -937,7 +876,6 @@ export function PortfolioProvider({ children }) {
     setCustomers((prev) =>
       prev.map((c) => (c.id === customerId ? { ...c, ...resetPayload } : c))
     );
-    await db.customers.update(customerId, resetPayload);
   };
 
   const togglePublishCustomer = async (customerId) => {
@@ -948,14 +886,12 @@ export function PortfolioProvider({ children }) {
     setCustomers((prev) =>
       prev.map((c) => (c.id === customerId ? { ...c, isPublished: newStatus } : c))
     );
-    await db.customers.update(customerId, { isPublished: newStatus });
   };
 
   const setCustomerPublishStatus = async (customerId, isPublished) => {
     setCustomers((prev) =>
       prev.map((c) => (c.id === customerId ? { ...c, isPublished } : c))
     );
-    await db.customers.update(customerId, { isPublished });
   };
 
   // Get specific portfolio data (OWNER or CUSTOMER)
@@ -999,7 +935,6 @@ export function PortfolioProvider({ children }) {
       const updated = isDef ? prev.map((t) => ({ ...t, isDefault: false })) : [...prev];
       return [newTemplate, ...updated];
     });
-    await db.templates.add(newTemplate);
     return newTemplate;
   };
 
@@ -1015,12 +950,10 @@ export function PortfolioProvider({ children }) {
         return t;
       })
     );
-    await db.templates.update(templateId, updatedData);
   };
 
   const deleteTemplate = async (templateId) => {
     setTemplates((prev) => prev.filter((t) => t.id !== templateId));
-    await db.templates.delete(templateId);
   };
 
   const setDefaultTemplate = async (templateId) => {
@@ -1030,7 +963,6 @@ export function PortfolioProvider({ children }) {
         isDefault: t.id === templateId,
       }))
     );
-    await db.templates.update(templateId, { isDefault: true });
   };
 
   const duplicateTemplate = async (templateId) => {
@@ -1061,7 +993,6 @@ export function PortfolioProvider({ children }) {
     };
 
     setTemplates((prev) => [cloned, ...prev]);
-    await db.templates.add(cloned);
     return cloned;
   };
 
@@ -1069,7 +1000,6 @@ export function PortfolioProvider({ children }) {
     setCustomers((prev) =>
       prev.map((c) => (c.id === customerId ? { ...c, templateId: newTemplateId } : c))
     );
-    await db.customers.update(customerId, { templateId: newTemplateId });
   };
 
   // Payment & Sales Operations
@@ -1117,7 +1047,6 @@ export function PortfolioProvider({ children }) {
     };
 
     setCustomers((prev) => [newCustomer, ...prev]);
-    await db.customers.create(newCustomer);
 
     // 2. Create Transaction Record (Pending Admin Master Verification)
     const nextTxNum = String(transactions.length + 1).padStart(4, '0');
@@ -1138,7 +1067,6 @@ export function PortfolioProvider({ children }) {
     };
 
     setTransactions((prev) => [newTx, ...prev]);
-    await db.transactions.create(newTx);
 
     return { transaction: newTx, customer: newCustomer };
   };
@@ -1149,13 +1077,11 @@ export function PortfolioProvider({ children }) {
     setTransactions((prev) =>
       prev.map((t) => (t.id === txId ? { ...t, status: 'lunas' } : t))
     );
-    await db.transactions.update(txId, { status: 'lunas' });
 
     if (target.customerId) {
       setCustomers((prev) =>
         prev.map((c) => (c.id === target.customerId ? { ...c, status: 'active', isPublished: true } : c))
       );
-      await db.customers.update(target.customerId, { status: 'active', isPublished: true });
     }
   };
 
@@ -1165,13 +1091,11 @@ export function PortfolioProvider({ children }) {
     setTransactions((prev) =>
       prev.map((t) => (t.id === txId ? { ...t, status: 'ditolak' } : t))
     );
-    await db.transactions.update(txId, { status: 'ditolak' });
 
     if (target.customerId) {
       setCustomers((prev) =>
         prev.map((c) => (c.id === target.customerId ? { ...c, status: 'inactive' } : c))
       );
-      await db.customers.update(target.customerId, { status: 'inactive' });
     }
   };
 
@@ -1179,7 +1103,6 @@ export function PortfolioProvider({ children }) {
     setCustomers((prev) =>
       prev.map((c) => (c.id === customerId ? { ...c, status: 'active', isPublished: true } : c))
     );
-    await db.customers.update(customerId, { status: 'active', isPublished: true });
 
     // Also update any pending transaction for this customer
     setTransactions((prev) =>
@@ -1189,7 +1112,6 @@ export function PortfolioProvider({ children }) {
 
   const deleteTransaction = async (txId) => {
     setTransactions((prev) => prev.filter((t) => t.id !== txId));
-    await db.transactions.delete(txId);
   };
 
   const updatePaymentSettings = (newSettings) => {
@@ -1199,11 +1121,15 @@ export function PortfolioProvider({ children }) {
   // Backup and Restore
   const exportDatabaseBackup = () => {
     const backup = {
-      version: '1.0',
+      version: '2.0',
       exportedAt: new Date().toISOString(),
       ownerData,
       customers,
       templates,
+      transactions,
+      paymentSettings,
+      pricingPackages,
+      pricingFaqs,
       templateConfig,
     };
     const jsonStr = JSON.stringify(backup, null, 2);
@@ -1211,7 +1137,7 @@ export function PortfolioProvider({ children }) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `riski-portfolio-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `jagoporto-backup-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -1222,6 +1148,10 @@ export function PortfolioProvider({ children }) {
       if (parsed.ownerData) setOwnerData(parsed.ownerData);
       if (Array.isArray(parsed.customers)) setCustomers(parsed.customers);
       if (Array.isArray(parsed.templates)) setTemplates(parsed.templates);
+      if (Array.isArray(parsed.transactions)) setTransactions(parsed.transactions);
+      if (parsed.paymentSettings) setPaymentSettings(parsed.paymentSettings);
+      if (Array.isArray(parsed.pricingPackages)) setPricingPackages(parsed.pricingPackages);
+      if (Array.isArray(parsed.pricingFaqs)) setPricingFaqs(parsed.pricingFaqs);
       return { success: true, message: 'Database backup berhasil diimpor!' };
     } catch {
       return { success: false, message: 'Format file backup tidak valid.' };
@@ -1232,14 +1162,16 @@ export function PortfolioProvider({ children }) {
     setOwnerData(DEFAULT_OWNER_DATA);
     setCustomers(DEFAULT_CUSTOMERS);
     setTemplates(DEFAULT_TEMPLATES);
-    localStorage.removeItem(STORAGE_KEYS.OWNER);
-    localStorage.removeItem(STORAGE_KEYS.CUSTOMERS);
-    localStorage.removeItem(STORAGE_KEYS.TEMPLATES);
+    setTransactions(DEFAULT_TRANSACTIONS);
+    setPaymentSettings(DEFAULT_PAYMENT_SETTINGS);
+    setPricingPackages(DEFAULT_PRICING_PACKAGES);
+    setPricingFaqs(DEFAULT_PRICING_FAQS);
   };
 
   return (
     <PortfolioContext.Provider
       value={{
+        isLoading,
         ownerData,
         customers,
         templates,

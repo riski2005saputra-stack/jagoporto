@@ -1,307 +1,548 @@
 /**
- * RISKI PROJEK — UNIVERSAL DATABASE & BACKEND SERVICE LAYER
+ * JAGOPORTO — UNIVERSAL DATABASE & BACKEND SERVICE LAYER
  * Supports:
- * 1. Transactional Local Engine (Offline-First / Zero-Config)
- * 2. Cloud Supabase / PostgreSQL Client (when VITE_SUPABASE_URL is provided)
- * Version: 1.0 (March 2026)
+ * 1. Cloud Supabase / PostgreSQL Client (when VITE_SUPABASE_URL is provided)
+ * 2. Fallback to Local Transactional Engine (Offline-First / Zero-Config)
+ * Version: 2.0 (September 2026)
  */
 
-const STORAGE_KEYS = {
-  USERS: 'riski_db_users_v1',
-  PROFILES: 'riski_db_profiles_v1',
-  PROJECTS: 'riski_db_projects_v1',
-  SKILLS: 'riski_db_skills_v1',
-  CERTIFICATES: 'riski_db_certificates_v1',
-  TEMPLATES: 'riski_db_templates_v1',
-  CUSTOMERS: 'riski_db_customers_v1',
-  ORDERS: 'riski_db_orders_v1',
+import { supabase, isSupabaseConnected } from './supabase';
+
+// =========================================================================
+// LOCAL STORAGE FALLBACK (used when Supabase is not configured)
+// =========================================================================
+const LOCAL_KEYS = {
+  OWNER: 'riski_owner_portfolio_v1',
+  CUSTOMERS: 'riski_customers_list_v1',
+  TEMPLATES: 'riski_templates_list_v1',
+  TRANSACTIONS: 'riski_transactions_list_v1',
+  PAYMENT_SETTINGS: 'riski_payment_settings_v1',
+  PRICING_PACKAGES: 'riski_pricing_packages_v1',
+  PRICING_FAQS: 'riski_pricing_faqs_v1',
 };
 
-// Helper to read table
-function readTable(key, defaultData = []) {
+function readLocal(key, fallback = null) {
   try {
     const raw = localStorage.getItem(key);
-    if (!raw) return defaultData;
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : defaultData;
-  } catch (e) {
-    console.warn(`[DB Driver] Error reading table ${key}:`, e);
-    return defaultData;
+    if (!raw) return fallback;
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
   }
 }
 
-// Helper to write table
-function writeTable(key, data) {
+function writeLocal(key, data) {
   try {
     localStorage.setItem(key, JSON.stringify(data));
-    return true;
   } catch (e) {
-    console.error(`[DB Driver] Failed writing to table ${key}:`, e);
-    return false;
+    console.warn(`[DB Local] Failed writing ${key}:`, e);
   }
 }
 
+// =========================================================================
+// DATABASE SERVICE — Auto-detects Supabase or falls back to localStorage
+// =========================================================================
 export const db = {
-  // Mode Check
-  isCloudConnected: () => {
-    return Boolean(
-      import.meta.env?.VITE_SUPABASE_URL && import.meta.env?.VITE_SUPABASE_ANON_KEY
-    );
-  },
+  isCloudConnected: isSupabaseConnected,
 
   getEngineName: () => {
-    return db.isCloudConnected()
+    return isSupabaseConnected()
       ? 'Supabase Cloud PostgreSQL Engine'
       : 'Local Transactional Database Engine (Offline-First)';
   },
 
-  // 1. PROFILES SERVICE
-  profiles: {
-    get: async (userId = 'OWNER-001') => {
-      const table = readTable(STORAGE_KEYS.PROFILES, []);
-      const found = table.find((p) => p.user_id === userId);
-      return found || null;
-    },
-    update: async (userId, profileData) => {
-      const table = readTable(STORAGE_KEYS.PROFILES, []);
-      const index = table.findIndex((p) => p.user_id === userId);
-      const updatedProfile = {
-        ...profileData,
-        user_id: userId,
-        updated_at: new Date().toISOString(),
-      };
-      if (index >= 0) {
-        table[index] = { ...table[index], ...updatedProfile };
-      } else {
-        table.push(updatedProfile);
+  // =======================================================================
+  // 1. OWNER DATA (Admin Master profile, skills, projects, etc.)
+  // =======================================================================
+  ownerData: {
+    get: async () => {
+      if (isSupabaseConnected()) {
+        const { data, error } = await supabase
+          .from('owner_data')
+          .select('data')
+          .eq('id', 'OWNER-001')
+          .single();
+        if (error || !data) return null;
+        return data.data;
       }
-      writeTable(STORAGE_KEYS.PROFILES, table);
-      return updatedProfile;
+      return readLocal(LOCAL_KEYS.OWNER, null);
     },
-  },
 
-  // 2. PROJECTS SERVICE
-  projects: {
-    list: async (userId = 'OWNER-001') => {
-      const table = readTable(STORAGE_KEYS.PROJECTS, []);
-      if (!userId || userId === 'all') return table;
-      return table.filter((p) => p.user_id === userId);
-    },
-    create: async (projectData) => {
-      const table = readTable(STORAGE_KEYS.PROJECTS, []);
-      const newProj = {
-        id: projectData.id || `proj-${Date.now()}`,
-        user_id: projectData.user_id || 'OWNER-001',
-        is_active: true,
-        created_at: new Date().toISOString(),
-        ...projectData,
-      };
-      table.unshift(newProj);
-      writeTable(STORAGE_KEYS.PROJECTS, table);
-      return newProj;
-    },
-    update: async (id, projectData) => {
-      const table = readTable(STORAGE_KEYS.PROJECTS, []);
-      const updated = table.map((p) => (p.id === id ? { ...p, ...projectData, updated_at: new Date().toISOString() } : p));
-      writeTable(STORAGE_KEYS.PROJECTS, updated);
-      return true;
-    },
-    delete: async (id) => {
-      const table = readTable(STORAGE_KEYS.PROJECTS, []);
-      const filtered = table.filter((p) => p.id !== id);
-      writeTable(STORAGE_KEYS.PROJECTS, filtered);
+    save: async (ownerObj) => {
+      if (isSupabaseConnected()) {
+        const { error } = await supabase
+          .from('owner_data')
+          .upsert({
+            id: 'OWNER-001',
+            data: ownerObj,
+            updated_at: new Date().toISOString(),
+          });
+        if (error) console.error('[DB Cloud] ownerData.save error:', error);
+        return !error;
+      }
+      writeLocal(LOCAL_KEYS.OWNER, ownerObj);
       return true;
     },
   },
 
-  // 3. SKILLS SERVICE
-  skills: {
-    list: async (userId = 'OWNER-001') => {
-      const table = readTable(STORAGE_KEYS.SKILLS, []);
-      if (!userId || userId === 'all') return table;
-      return table.filter((s) => s.user_id === userId);
-    },
-    create: async (skillData) => {
-      const table = readTable(STORAGE_KEYS.SKILLS, []);
-      const newSkill = {
-        id: skillData.id || `sk-${Date.now()}`,
-        user_id: skillData.user_id || 'OWNER-001',
-        created_at: new Date().toISOString(),
-        ...skillData,
-      };
-      table.push(newSkill);
-      writeTable(STORAGE_KEYS.SKILLS, table);
-      return newSkill;
-    },
-    delete: async (id) => {
-      const table = readTable(STORAGE_KEYS.SKILLS, []);
-      const filtered = table.filter((s) => s.id !== id);
-      writeTable(STORAGE_KEYS.SKILLS, filtered);
-      return true;
-    },
-  },
-
-  // 4. CERTIFICATES SERVICE
-  certificates: {
-    list: async (userId = 'OWNER-001') => {
-      const table = readTable(STORAGE_KEYS.CERTIFICATES, []);
-      if (!userId || userId === 'all') return table;
-      return table.filter((c) => c.user_id === userId);
-    },
-    create: async (certData) => {
-      const table = readTable(STORAGE_KEYS.CERTIFICATES, []);
-      const newCert = {
-        id: certData.id || `cert-${Date.now()}`,
-        user_id: certData.user_id || 'OWNER-001',
-        created_at: new Date().toISOString(),
-        ...certData,
-      };
-      table.push(newCert);
-      writeTable(STORAGE_KEYS.CERTIFICATES, table);
-      return newCert;
-    },
-    delete: async (id) => {
-      const table = readTable(STORAGE_KEYS.CERTIFICATES, []);
-      const filtered = table.filter((c) => c.id !== id);
-      writeTable(STORAGE_KEYS.CERTIFICATES, filtered);
-      return true;
-    },
-  },
-
-  // 5. TEMPLATES SERVICE
-  templates: {
-    list: async () => {
-      return readTable(STORAGE_KEYS.TEMPLATES, []);
-    },
-    create: async (templateData) => {
-      const table = readTable(STORAGE_KEYS.TEMPLATES, []);
-      const newTmpl = {
-        id: templateData.id || `TMPL-${String(table.length + 1).padStart(3, '0')}`,
-        status: 'active',
-        created_at: new Date().toISOString(),
-        ...templateData,
-      };
-      table.push(newTmpl);
-      writeTable(STORAGE_KEYS.TEMPLATES, table);
-      return newTmpl;
-    },
-    update: async (id, updatedData) => {
-      const table = readTable(STORAGE_KEYS.TEMPLATES, []);
-      const updated = table.map((t) => (t.id === id ? { ...t, ...updatedData } : t));
-      writeTable(STORAGE_KEYS.TEMPLATES, updated);
-      return true;
-    },
-    delete: async (id) => {
-      const table = readTable(STORAGE_KEYS.TEMPLATES, []);
-      const filtered = table.filter((t) => t.id !== id);
-      writeTable(STORAGE_KEYS.TEMPLATES, filtered);
-      return true;
-    },
-  },
-
-  // 6. CUSTOMERS SERVICE
+  // =======================================================================
+  // 2. CUSTOMERS
+  // =======================================================================
   customers: {
     list: async () => {
-      return readTable(STORAGE_KEYS.CUSTOMERS, []);
+      if (isSupabaseConnected()) {
+        const { data, error } = await supabase
+          .from('customers')
+          .select('id, data, created_at')
+          .order('created_at', { ascending: false });
+        if (error) {
+          console.error('[DB Cloud] customers.list error:', error);
+          return [];
+        }
+        return (data || []).map((row) => ({ ...row.data, id: row.id }));
+      }
+      return readLocal(LOCAL_KEYS.CUSTOMERS, []);
     },
-    create: async (customerData) => {
-      const table = readTable(STORAGE_KEYS.CUSTOMERS, []);
-      const nextNum = String(table.length + 1).padStart(3, '0');
-      const newCust = {
-        id: `CUST-${nextNum}`,
-        status: 'active',
-        created_at: new Date().toISOString().split('T')[0],
-        ...customerData,
-      };
-      table.unshift(newCust);
-      writeTable(STORAGE_KEYS.CUSTOMERS, table);
-      return newCust;
-    },
-    update: async (id, updatedData) => {
-      const table = readTable(STORAGE_KEYS.CUSTOMERS, []);
-      const updated = table.map((c) => (c.id === id ? { ...c, ...updatedData } : c));
-      writeTable(STORAGE_KEYS.CUSTOMERS, updated);
+
+    create: async (customerObj) => {
+      if (isSupabaseConnected()) {
+        const { error } = await supabase
+          .from('customers')
+          .insert({
+            id: customerObj.id,
+            data: customerObj,
+          });
+        if (error) console.error('[DB Cloud] customers.create error:', error);
+        return !error;
+      }
+      const list = readLocal(LOCAL_KEYS.CUSTOMERS, []);
+      list.unshift(customerObj);
+      writeLocal(LOCAL_KEYS.CUSTOMERS, list);
       return true;
     },
+
+    update: async (id, updatedData) => {
+      if (isSupabaseConnected()) {
+        // Fetch current, merge, save
+        const { data: existing } = await supabase
+          .from('customers')
+          .select('data')
+          .eq('id', id)
+          .single();
+        const merged = { ...(existing?.data || {}), ...updatedData, id };
+        const { error } = await supabase
+          .from('customers')
+          .upsert({
+            id,
+            data: merged,
+            updated_at: new Date().toISOString(),
+          });
+        if (error) console.error('[DB Cloud] customers.update error:', error);
+        return !error;
+      }
+      const list = readLocal(LOCAL_KEYS.CUSTOMERS, []);
+      const updated = list.map((c) => (c.id === id ? { ...c, ...updatedData } : c));
+      writeLocal(LOCAL_KEYS.CUSTOMERS, updated);
+      return true;
+    },
+
     delete: async (id) => {
-      const table = readTable(STORAGE_KEYS.CUSTOMERS, []);
-      const filtered = table.filter((c) => c.id !== id);
-      writeTable(STORAGE_KEYS.CUSTOMERS, filtered);
+      if (isSupabaseConnected()) {
+        const { error } = await supabase
+          .from('customers')
+          .delete()
+          .eq('id', id);
+        if (error) console.error('[DB Cloud] customers.delete error:', error);
+        return !error;
+      }
+      const list = readLocal(LOCAL_KEYS.CUSTOMERS, []);
+      writeLocal(LOCAL_KEYS.CUSTOMERS, list.filter((c) => c.id !== id));
+      return true;
+    },
+
+    saveAll: async (customersArray) => {
+      if (isSupabaseConnected()) {
+        // Upsert all customers at once
+        const rows = customersArray.map((c) => ({
+          id: c.id,
+          data: c,
+          updated_at: new Date().toISOString(),
+        }));
+        const { error } = await supabase
+          .from('customers')
+          .upsert(rows);
+        if (error) console.error('[DB Cloud] customers.saveAll error:', error);
+        return !error;
+      }
+      writeLocal(LOCAL_KEYS.CUSTOMERS, customersArray);
       return true;
     },
   },
 
-  // 7. TRANSACTIONS & ORDERS SERVICE
+  // =======================================================================
+  // 3. TEMPLATES
+  // =======================================================================
+  templates: {
+    list: async () => {
+      if (isSupabaseConnected()) {
+        const { data, error } = await supabase
+          .from('templates')
+          .select('id, data, created_at')
+          .order('created_at', { ascending: true });
+        if (error) {
+          console.error('[DB Cloud] templates.list error:', error);
+          return [];
+        }
+        return (data || []).map((row) => ({ ...row.data, id: row.id }));
+      }
+      return readLocal(LOCAL_KEYS.TEMPLATES, []);
+    },
+
+    create: async (templateObj) => {
+      if (isSupabaseConnected()) {
+        const { error } = await supabase
+          .from('templates')
+          .insert({
+            id: templateObj.id,
+            data: templateObj,
+          });
+        if (error) console.error('[DB Cloud] templates.create error:', error);
+        return !error;
+      }
+      const list = readLocal(LOCAL_KEYS.TEMPLATES, []);
+      list.push(templateObj);
+      writeLocal(LOCAL_KEYS.TEMPLATES, list);
+      return true;
+    },
+
+    add: async (templateObj) => {
+      // Alias for create (backward compat)
+      return db.templates.create(templateObj);
+    },
+
+    update: async (id, updatedData) => {
+      if (isSupabaseConnected()) {
+        const { data: existing } = await supabase
+          .from('templates')
+          .select('data')
+          .eq('id', id)
+          .single();
+        const merged = { ...(existing?.data || {}), ...updatedData, id };
+        const { error } = await supabase
+          .from('templates')
+          .upsert({
+            id,
+            data: merged,
+            updated_at: new Date().toISOString(),
+          });
+        if (error) console.error('[DB Cloud] templates.update error:', error);
+        return !error;
+      }
+      const list = readLocal(LOCAL_KEYS.TEMPLATES, []);
+      const updated = list.map((t) => (t.id === id ? { ...t, ...updatedData } : t));
+      writeLocal(LOCAL_KEYS.TEMPLATES, updated);
+      return true;
+    },
+
+    delete: async (id) => {
+      if (isSupabaseConnected()) {
+        const { error } = await supabase
+          .from('templates')
+          .delete()
+          .eq('id', id);
+        if (error) console.error('[DB Cloud] templates.delete error:', error);
+        return !error;
+      }
+      const list = readLocal(LOCAL_KEYS.TEMPLATES, []);
+      writeLocal(LOCAL_KEYS.TEMPLATES, list.filter((t) => t.id !== id));
+      return true;
+    },
+
+    saveAll: async (templatesArray) => {
+      if (isSupabaseConnected()) {
+        const rows = templatesArray.map((t) => ({
+          id: t.id,
+          data: t,
+          updated_at: new Date().toISOString(),
+        }));
+        const { error } = await supabase
+          .from('templates')
+          .upsert(rows);
+        if (error) console.error('[DB Cloud] templates.saveAll error:', error);
+        return !error;
+      }
+      writeLocal(LOCAL_KEYS.TEMPLATES, templatesArray);
+      return true;
+    },
+  },
+
+  // =======================================================================
+  // 4. TRANSACTIONS / ORDERS
+  // =======================================================================
   transactions: {
     list: async () => {
-      return readTable(STORAGE_KEYS.ORDERS, []);
+      if (isSupabaseConnected()) {
+        const { data, error } = await supabase
+          .from('transactions')
+          .select('id, data, created_at')
+          .order('created_at', { ascending: false });
+        if (error) {
+          console.error('[DB Cloud] transactions.list error:', error);
+          return [];
+        }
+        return (data || []).map((row) => ({ ...row.data, id: row.id }));
+      }
+      return readLocal(LOCAL_KEYS.TRANSACTIONS, []);
     },
-    create: async (txData) => {
-      const table = readTable(STORAGE_KEYS.ORDERS, []);
-      const nextNum = String(table.length + 1).padStart(4, '0');
-      const newTx = {
-        id: txData.id || `TRX-${Date.now().toString().slice(-6)}-${nextNum}`,
-        created_at: new Date().toISOString(),
-        status: txData.status || 'lunas',
-        ...txData,
-      };
-      table.unshift(newTx);
-      writeTable(STORAGE_KEYS.ORDERS, table);
-      return newTx;
-    },
-    update: async (id, updatedData) => {
-      const table = readTable(STORAGE_KEYS.ORDERS, []);
-      const updated = table.map((t) => (t.id === id ? { ...t, ...updatedData } : t));
-      writeTable(STORAGE_KEYS.ORDERS, updated);
+
+    create: async (txObj) => {
+      if (isSupabaseConnected()) {
+        const { error } = await supabase
+          .from('transactions')
+          .insert({
+            id: txObj.id,
+            data: txObj,
+          });
+        if (error) console.error('[DB Cloud] transactions.create error:', error);
+        return !error;
+      }
+      const list = readLocal(LOCAL_KEYS.TRANSACTIONS, []);
+      list.unshift(txObj);
+      writeLocal(LOCAL_KEYS.TRANSACTIONS, list);
       return true;
     },
+
+    update: async (id, updatedData) => {
+      if (isSupabaseConnected()) {
+        const { data: existing } = await supabase
+          .from('transactions')
+          .select('data')
+          .eq('id', id)
+          .single();
+        const merged = { ...(existing?.data || {}), ...updatedData, id };
+        const { error } = await supabase
+          .from('transactions')
+          .upsert({
+            id,
+            data: merged,
+            updated_at: new Date().toISOString(),
+          });
+        if (error) console.error('[DB Cloud] transactions.update error:', error);
+        return !error;
+      }
+      const list = readLocal(LOCAL_KEYS.TRANSACTIONS, []);
+      const updated = list.map((t) => (t.id === id ? { ...t, ...updatedData } : t));
+      writeLocal(LOCAL_KEYS.TRANSACTIONS, updated);
+      return true;
+    },
+
     delete: async (id) => {
-      const table = readTable(STORAGE_KEYS.ORDERS, []);
-      const filtered = table.filter((t) => t.id !== id);
-      writeTable(STORAGE_KEYS.ORDERS, filtered);
+      if (isSupabaseConnected()) {
+        const { error } = await supabase
+          .from('transactions')
+          .delete()
+          .eq('id', id);
+        if (error) console.error('[DB Cloud] transactions.delete error:', error);
+        return !error;
+      }
+      const list = readLocal(LOCAL_KEYS.TRANSACTIONS, []);
+      writeLocal(LOCAL_KEYS.TRANSACTIONS, list.filter((t) => t.id !== id));
+      return true;
+    },
+
+    saveAll: async (txArray) => {
+      if (isSupabaseConnected()) {
+        const rows = txArray.map((t) => ({
+          id: t.id,
+          data: t,
+          updated_at: new Date().toISOString(),
+        }));
+        const { error } = await supabase
+          .from('transactions')
+          .upsert(rows);
+        if (error) console.error('[DB Cloud] transactions.saveAll error:', error);
+        return !error;
+      }
+      writeLocal(LOCAL_KEYS.TRANSACTIONS, txArray);
       return true;
     },
   },
 
-  // 8. DIAGNOSTIC HEALTH CHECK
+  // =======================================================================
+  // 5. PAYMENT SETTINGS
+  // =======================================================================
+  paymentSettings: {
+    get: async () => {
+      if (isSupabaseConnected()) {
+        const { data, error } = await supabase
+          .from('payment_settings')
+          .select('data')
+          .eq('id', 'default')
+          .single();
+        if (error || !data) return null;
+        return data.data;
+      }
+      return readLocal(LOCAL_KEYS.PAYMENT_SETTINGS, null);
+    },
+
+    save: async (settingsObj) => {
+      if (isSupabaseConnected()) {
+        const { error } = await supabase
+          .from('payment_settings')
+          .upsert({
+            id: 'default',
+            data: settingsObj,
+            updated_at: new Date().toISOString(),
+          });
+        if (error) console.error('[DB Cloud] paymentSettings.save error:', error);
+        return !error;
+      }
+      writeLocal(LOCAL_KEYS.PAYMENT_SETTINGS, settingsObj);
+      return true;
+    },
+  },
+
+  // =======================================================================
+  // 6. PRICING PACKAGES
+  // =======================================================================
+  pricingPackages: {
+    list: async () => {
+      if (isSupabaseConnected()) {
+        const { data, error } = await supabase
+          .from('pricing_packages')
+          .select('id, data, sort_order')
+          .order('sort_order', { ascending: true });
+        if (error) {
+          console.error('[DB Cloud] pricingPackages.list error:', error);
+          return [];
+        }
+        return (data || []).map((row) => ({ ...row.data, id: row.id }));
+      }
+      return readLocal(LOCAL_KEYS.PRICING_PACKAGES, []);
+    },
+
+    saveAll: async (pkgArray) => {
+      if (isSupabaseConnected()) {
+        // Delete old and insert all
+        await supabase.from('pricing_packages').delete().neq('id', '');
+        const rows = pkgArray.map((p, i) => ({
+          id: p.id,
+          data: p,
+          sort_order: i,
+        }));
+        if (rows.length > 0) {
+          const { error } = await supabase
+            .from('pricing_packages')
+            .insert(rows);
+          if (error) console.error('[DB Cloud] pricingPackages.saveAll error:', error);
+        }
+        return true;
+      }
+      writeLocal(LOCAL_KEYS.PRICING_PACKAGES, pkgArray);
+      return true;
+    },
+  },
+
+  // =======================================================================
+  // 7. PRICING FAQS
+  // =======================================================================
+  pricingFaqs: {
+    list: async () => {
+      if (isSupabaseConnected()) {
+        const { data, error } = await supabase
+          .from('pricing_faqs')
+          .select('id, data, sort_order')
+          .order('sort_order', { ascending: true });
+        if (error) {
+          console.error('[DB Cloud] pricingFaqs.list error:', error);
+          return [];
+        }
+        return (data || []).map((row) => ({ ...row.data, id: row.id }));
+      }
+      return readLocal(LOCAL_KEYS.PRICING_FAQS, []);
+    },
+
+    saveAll: async (faqArray) => {
+      if (isSupabaseConnected()) {
+        await supabase.from('pricing_faqs').delete().neq('id', '');
+        const rows = faqArray.map((f, i) => ({
+          id: f.id,
+          data: f,
+          sort_order: i,
+        }));
+        if (rows.length > 0) {
+          const { error } = await supabase
+            .from('pricing_faqs')
+            .insert(rows);
+          if (error) console.error('[DB Cloud] pricingFaqs.saveAll error:', error);
+        }
+        return true;
+      }
+      writeLocal(LOCAL_KEYS.PRICING_FAQS, faqArray);
+      return true;
+    },
+  },
+
+  // =======================================================================
+  // 8. BACKWARD COMPAT — profiles/projects (used by old code paths)
+  // =======================================================================
+  profiles: {
+    get: async (userId) => {
+      // Delegated to ownerData for OWNER-001
+      if (userId === 'OWNER-001') {
+        const owner = await db.ownerData.get();
+        return owner?.profile || null;
+      }
+      return null;
+    },
+    update: async (userId, profileData) => {
+      // No-op for cloud — handled via ownerData.save or customers.update
+      return true;
+    },
+  },
+
+  projects: {
+    list: async () => [],
+    create: async () => true,
+    update: async () => true,
+    delete: async () => true,
+  },
+
+  // =======================================================================
+  // 9. HEALTH CHECK
+  // =======================================================================
   healthCheck: async () => {
     const startTime = performance.now();
     try {
-      // Test read tables
-      const users = readTable(STORAGE_KEYS.USERS, [{ id: 'OWNER-001', role: 'master' }]);
-      const profiles = readTable(STORAGE_KEYS.PROFILES, []);
-      const projects = readTable(STORAGE_KEYS.PROJECTS, []);
-      const skills = readTable(STORAGE_KEYS.SKILLS, []);
-      const certs = readTable(STORAGE_KEYS.CERTIFICATES, []);
-      const templates = readTable(STORAGE_KEYS.TEMPLATES, []);
-      const customers = readTable(STORAGE_KEYS.CUSTOMERS, []);
-      const transactions = readTable(STORAGE_KEYS.ORDERS, []);
+      if (isSupabaseConnected()) {
+        const { data, error } = await supabase
+          .from('owner_data')
+          .select('id')
+          .limit(1);
+        const endTime = performance.now();
+        return {
+          status: error ? 'ERROR' : 'HEALTHY',
+          engine: db.getEngineName(),
+          isCloud: true,
+          latencyMs: Math.round(endTime - startTime),
+          error: error?.message,
+          timestamp: new Date().toISOString(),
+        };
+      }
 
-      // Test temporary atomic write and delete
+      // Local fallback health check
       const testKey = 'riski_db_health_ping';
       localStorage.setItem(testKey, JSON.stringify({ ping: 'pong', timestamp: Date.now() }));
       const readPing = JSON.parse(localStorage.getItem(testKey));
       localStorage.removeItem(testKey);
-
       const endTime = performance.now();
-      const latency = Math.round(endTime - startTime);
 
       return {
         status: 'HEALTHY',
         engine: db.getEngineName(),
-        isCloud: db.isCloudConnected(),
-        latencyMs: latency,
+        isCloud: false,
+        latencyMs: Math.round(endTime - startTime),
         pingVerified: readPing?.ping === 'pong',
-        tables: [
-          { name: 'users', count: users.length, status: 'Active' },
-          { name: 'profiles', count: profiles.length || 1, status: 'Active' },
-          { name: 'projects', count: projects.length || 13, status: 'Active' },
-          { name: 'skills', count: skills.length || 8, status: 'Active' },
-          { name: 'certificates', count: certs.length || 6, status: 'Active' },
-          { name: 'templates', count: templates.length || 3, status: 'Active' },
-          { name: 'customers', count: customers.length || 2, status: 'Active' },
-          { name: 'transactions', count: transactions.length || 0, status: 'Active' },
-        ],
         timestamp: new Date().toISOString(),
       };
     } catch (err) {
