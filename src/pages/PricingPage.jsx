@@ -208,7 +208,7 @@ export default function PricingPage() {
                       onClick={() => setOpenFaqIndex(isOpen ? null : idx)}
                       className="w-full p-4 sm:p-5 flex items-center justify-between text-left gap-3 text-xs sm:text-sm font-bold text-white hover:text-amber-300 transition-colors cursor-pointer"
                     >
-                      <span>{faq.q}</span>
+                      <span>{faq.q || faq.question}</span>
                       <ChevronDown
                         className={`w-4 h-4 text-slate-400 shrink-0 transition-transform duration-300 ${
                           isOpen ? 'rotate-180 text-amber-400' : ''
@@ -217,7 +217,7 @@ export default function PricingPage() {
                     </button>
                     {isOpen && (
                       <div className="px-4 sm:px-5 pb-5 text-xs text-slate-300 leading-relaxed border-t border-white/5 pt-3">
-                        {faq.a}
+                        {faq.a || faq.answer}
                       </div>
                     )}
                   </div>
