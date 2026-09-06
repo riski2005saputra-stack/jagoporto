@@ -146,13 +146,25 @@ export const db = {
 
     update: async (id, updatedData) => {
       const list = readLocal(LOCAL_KEYS.CUSTOMERS, []);
-      const target = list.find((c) => c.id === id) || {};
-      const merged = { ...target, ...updatedData, id };
-      const updatedList = list.map((c) => (c.id === id ? merged : c));
-      writeLocal(LOCAL_KEYS.CUSTOMERS, updatedList);
+      const localTarget = list.find((c) => c.id === id) || {};
+
+      let merged = { ...localTarget, ...updatedData, id };
 
       if (isSupabaseConnected()) {
         try {
+          const { data: cloudRow } = await supabase
+            .from('customers')
+            .select('data')
+            .eq('id', id)
+            .maybeSingle();
+
+          if (cloudRow?.data) {
+            merged = { ...cloudRow.data, ...updatedData, id };
+          }
+
+          const updatedList = [merged, ...list.filter((c) => c.id !== id)];
+          writeLocal(LOCAL_KEYS.CUSTOMERS, updatedList);
+
           const { error } = await supabase
             .from('customers')
             .upsert({
@@ -165,6 +177,9 @@ export const db = {
         } catch (e) {
           console.error('[DB Cloud] customers.update exception:', e);
         }
+      } else {
+        const updatedList = [merged, ...list.filter((c) => c.id !== id)];
+        writeLocal(LOCAL_KEYS.CUSTOMERS, updatedList);
       }
       return true;
     },

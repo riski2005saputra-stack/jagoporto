@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -47,52 +47,35 @@ export default function CustomerEditor() {
   const { logoutCustomer } = useAuth();
 
   const foundCustomer = customers.find((c) => c.id === customerId);
-  const defCustomer =
-    (customers && customers.find((c) => c.id === 'CUST-003')) ||
-    customers?.[2] ||
-    customers?.[0] ||
-    {};
-  const customer = foundCustomer || {
-    ...defCustomer,
-    id: customerId,
-    name: customerId === 'CUST-003' ? 'Andi Saputra' : `Customer ${customerId}`,
-    slug: customerId?.toLowerCase() || 'customer',
-    email: 'andi.saputra@example.com',
-    status: 'active',
-    templateId: 'TMPL-001',
-    accessPin: '1234',
-    profile: {
-      fullName: 'Andi Saputra',
-      jobTitle: 'Mechanical & Automation Engineer',
-      companyName: 'PT REKAYASA DIGITAL INDONESIA',
-      department: 'Engineering & Fabrication Dept',
-      portfolioType: 'MECHANICAL & SOFTWARE PORTFOLIO',
-      cardNumber: `${customerId} / ENG-2026`,
-      cardJoinDate: '03 / 2026',
-      cardSpecialist: 'SPECIALIST: 3D CAD, FEA SIMULATION & WEB APPS',
-      cardAccessLevel: 'LEVEL 4 • INDUSTRIAL DESIGN & AUTOMATION',
-      bio: 'Spesialis perancangan sistem mekanikal presisi, simulasi FEA Von-Mises, aplikasi web modern, dan otomasi industri manufaktur.',
-      email: 'andi.saputra@example.com',
-      whatsapp: '+62 813-9876-5432',
-      phone: '+62 813-9876-5432',
-      education: 'S1 Teknik Mesin',
-      experienceYears: '4+',
-      certCount: '6+',
-      isPublished: true,
-      projectsHazardText: `• PORTO FOLIO ${(customerId || 'ANDI SAPUTRA').toUpperCase()} • REKAYASA & DIGITAL •`,
-      projectsBadge: '03 / PROJECT SHOWCASE',
-      projectsTitle: 'COMPLETED WORKS',
-      projectsSubtitle: 'From Mechanical Engineering, Modern Web Apps to CV Portfolio Templates',
-      projectsFooterSummary: 'MESIN, WEB APPS & TEMPLATE CV',
-      projectCategories: ['Mesin & Industri', 'Web Apps & Portofolio', 'Template CV'],
-      ...(defCustomer?.profile || {}),
-    },
-    skills: defCustomer?.skills || [],
-    projects: defCustomer?.projects || [],
-    certificates: defCustomer?.certificates || [],
-    cv: defCustomer?.cv || { fileName: 'CV Portfolio.pdf', fileUrl: '#' },
-    socialMedia: defCustomer?.socialMedia || { whatsapp: 'https://wa.me/6281398765432', email: 'mailto:andi.saputra@example.com' },
-  };
+  const customer = useMemo(() => {
+    if (foundCustomer) return foundCustomer;
+    return {
+      id: customerId,
+      name: `Customer ${customerId}`,
+      slug: customerId?.toLowerCase() || 'customer',
+      email: '',
+      status: 'active',
+      templateId: 'TMPL-001',
+      accessPin: '1234',
+      profile: {
+        fullName: `Customer ${customerId}`,
+        jobTitle: 'Mechanical & Automation Engineer',
+        bio: 'Spesialis perancangan sistem mekanikal presisi, simulasi FEA, dan teknologi modern.',
+        email: '',
+        whatsapp: '',
+        education: 'Sarjana Teknik',
+        experienceYears: '3+',
+        certCount: '4+',
+        isPublished: true,
+      },
+      skills: [],
+      projects: [],
+      certificates: [],
+      cv: { fileName: 'CV Portfolio.pdf', fileUrl: '' },
+      socialMedia: { whatsapp: '', email: '' },
+    };
+  }, [foundCustomer, customerId]);
+
   const assignedTemplate = templates.find((t) => t.id === customer?.templateId) || templates[0];
 
   // Default to Halaman 1 (Hero & ID Card) with safety fallback
@@ -108,7 +91,7 @@ export default function CustomerEditor() {
   const [socialForm, setSocialForm] = useState(customer?.socialMedia || {});
   const [settingsForm, setSettingsForm] = useState({
     slug: customer?.slug || '',
-    pin: customer?.pin || '1234',
+    pin: customer?.accessPin || customer?.pin || '1234',
     isPublished: customer?.isPublished !== false,
   });
 
@@ -154,25 +137,23 @@ export default function CustomerEditor() {
   const [certForm, setCertForm] = useState({ title: '', issuer: '', year: '2025', desc: '' });
 
   useEffect(() => {
-    if (customer) {
-      setProfileForm(customer.profile || {});
-      setCvForm(customer.cv || {});
-      setSocialForm(customer.socialMedia || {});
+    if (foundCustomer) {
+      setProfileForm(foundCustomer.profile || {});
+      setCvForm(foundCustomer.cv || {});
+      setSocialForm(foundCustomer.socialMedia || {});
       setProjectsListForm(
-        (customer.projects || []).map((p) => ({
+        (foundCustomer.projects || []).map((p) => ({
           ...p,
           toolsStr: Array.isArray(p.tools) ? p.tools.join(', ') : (p.toolsStr || ''),
         }))
       );
       setSettingsForm({
-        slug: customer.slug || '',
-        pin: customer.pin || '1234',
-        isPublished: customer.isPublished !== false,
+        slug: foundCustomer.slug || '',
+        pin: foundCustomer.accessPin || foundCustomer.pin || '1234',
+        isPublished: foundCustomer.isPublished !== false,
       });
     }
-  }, [customer]);
-
-
+  }, [foundCustomer]);
 
   const triggerSaveToast = () => {
     setSaveToast(true);
