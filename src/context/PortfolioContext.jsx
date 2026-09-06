@@ -3,7 +3,7 @@ import { PROJECTS_DATA } from '../data/projects';
 import riskiPortrait from '../assets/riski-portrait.jpg';
 import riskiAboutPortrait from '../assets/riski-about-portrait.jpg';
 import orangImg from '../assets/ORANG.png';
-import { db } from '../services/database';
+import { db, LOCAL_KEYS, readLocal } from '../services/database';
 
 // Initial Master Owner Data (OWNER-001)
 const DEFAULT_OWNER_DATA = {
@@ -494,25 +494,25 @@ export function PortfolioProvider({ children }) {
   const hasFetchedRef = useRef(false);
 
   // 1. Owner Data State (OWNER-001)
-  const [ownerData, setOwnerData] = useState(DEFAULT_OWNER_DATA);
+  const [ownerData, setOwnerData] = useState(() => readLocal(LOCAL_KEYS.OWNER, DEFAULT_OWNER_DATA));
 
   // 2. Customers List State
-  const [customers, setCustomers] = useState(DEFAULT_CUSTOMERS);
+  const [customers, setCustomers] = useState(() => readLocal(LOCAL_KEYS.CUSTOMERS, DEFAULT_CUSTOMERS));
 
   // 3. Templates Catalog State
-  const [templates, setTemplates] = useState(DEFAULT_TEMPLATES);
+  const [templates, setTemplates] = useState(() => readLocal(LOCAL_KEYS.TEMPLATES, DEFAULT_TEMPLATES));
 
   // 4. Transactions / Orders State
-  const [transactions, setTransactions] = useState(DEFAULT_TRANSACTIONS);
+  const [transactions, setTransactions] = useState(() => readLocal(LOCAL_KEYS.TRANSACTIONS, DEFAULT_TRANSACTIONS));
 
   // 5. Payment Configuration State
-  const [paymentSettings, setPaymentSettings] = useState(DEFAULT_PAYMENT_SETTINGS);
+  const [paymentSettings, setPaymentSettings] = useState(() => readLocal(LOCAL_KEYS.PAYMENT_SETTINGS, DEFAULT_PAYMENT_SETTINGS));
 
   // 6. Pricing Packages State
-  const [pricingPackages, setPricingPackages] = useState(DEFAULT_PRICING_PACKAGES);
+  const [pricingPackages, setPricingPackages] = useState(() => readLocal(LOCAL_KEYS.PRICING_PACKAGES, DEFAULT_PRICING_PACKAGES));
 
   // 7. Pricing FAQ State
-  const [pricingFaqs, setPricingFaqs] = useState(DEFAULT_PRICING_FAQS);
+  const [pricingFaqs, setPricingFaqs] = useState(() => readLocal(LOCAL_KEYS.PRICING_FAQS, DEFAULT_PRICING_FAQS));
 
   // 8. Template Version Info
   const [templateConfig] = useState({
@@ -540,7 +540,7 @@ export function PortfolioProvider({ children }) {
 
     const loadAllData = async () => {
       try {
-        // Fetch all data in parallel
+        // Fetch all data in parallel from Cloud
         const [
           cloudOwner,
           cloudCustomers,
@@ -559,8 +559,8 @@ export function PortfolioProvider({ children }) {
           db.pricingFaqs.list(),
         ]);
 
-        // Only update state if cloud data exists (non-empty)
-        if (cloudOwner) {
+        // Sync Owner
+        if (cloudOwner && Object.keys(cloudOwner).length > 0) {
           setOwnerData((prev) => ({
             ...prev,
             ...cloudOwner,
@@ -568,27 +568,53 @@ export function PortfolioProvider({ children }) {
               ? cloudOwner.projects
               : prev.projects,
           }));
+        } else {
+          db.ownerData.save(ownerData);
         }
+
+        // Sync Customers
         if (cloudCustomers && cloudCustomers.length > 0) {
           setCustomers(cloudCustomers);
+        } else if (customers && customers.length > 0) {
+          db.customers.saveAll(customers);
         }
+
+        // Sync Templates
         if (cloudTemplates && cloudTemplates.length > 0) {
           setTemplates(cloudTemplates);
+        } else if (templates && templates.length > 0) {
+          db.templates.saveAll(templates);
         }
+
+        // Sync Transactions
         if (cloudTransactions && cloudTransactions.length > 0) {
           setTransactions(cloudTransactions);
+        } else if (transactions && transactions.length > 0) {
+          db.transactions.saveAll(transactions);
         }
-        if (cloudPayment) {
+
+        // Sync Payment Settings
+        if (cloudPayment && Object.keys(cloudPayment).length > 0) {
           setPaymentSettings((prev) => ({ ...prev, ...cloudPayment }));
+        } else if (paymentSettings) {
+          db.paymentSettings.save(paymentSettings);
         }
+
+        // Sync Pricing Packages
         if (cloudPricing && cloudPricing.length > 0) {
           setPricingPackages(cloudPricing);
+        } else if (pricingPackages && pricingPackages.length > 0) {
+          db.pricingPackages.saveAll(pricingPackages);
         }
+
+        // Sync FAQs
         if (cloudFaqs && cloudFaqs.length > 0) {
           setPricingFaqs(cloudFaqs);
+        } else if (pricingFaqs && pricingFaqs.length > 0) {
+          db.pricingFaqs.saveAll(pricingFaqs);
         }
       } catch (err) {
-        console.warn('[PortfolioContext] Failed loading cloud data, using defaults:', err);
+        console.warn('[PortfolioContext] Cloud fetch error, using local data:', err);
       } finally {
         setIsLoading(false);
       }
@@ -598,14 +624,13 @@ export function PortfolioProvider({ children }) {
   }, []);
 
   // =======================================================================
-  // AUTO-SAVE TO DATABASE (Supabase Cloud + Local Storage Sync)
-  // Debounced: saves immediately locally and syncs to cloud in 250ms
+  // AUTO-SAVE SAFETY NET (Supabase Cloud + Local Storage Sync)
   // =======================================================================
   const pendingSavesRef = useRef({});
   const saveTimerRef = useRef({});
 
   const debouncedSave = useCallback((key, saveFn, data) => {
-    if (isLoading) return; // Don't save during initial load
+    if (isLoading) return;
     pendingSavesRef.current[key] = { saveFn, data };
     clearTimeout(saveTimerRef.current[key]);
     saveTimerRef.current[key] = setTimeout(() => {
@@ -616,10 +641,10 @@ export function PortfolioProvider({ children }) {
         .catch((err) =>
           console.warn(`[PortfolioContext] Failed saving ${key}:`, err)
         );
-    }, 250); // 250ms fast debounce
+    }, 250);
   }, [isLoading]);
 
-  // Flush pending saves before browser window unloads/refreshes
+  // Flush pending saves before window unloads
   useEffect(() => {
     const handleBeforeUnload = () => {
       Object.keys(pendingSavesRef.current).forEach((key) => {
@@ -668,11 +693,15 @@ export function PortfolioProvider({ children }) {
     debouncedSave('faqs', db.pricingFaqs.saveAll, pricingFaqs);
   }, [pricingFaqs, isLoading, debouncedSave]);
 
-  // Pricing Packages Actions
+  // =======================================================================
+  // PRICING PACKAGES ACTIONS (Direct DB Save + State Update)
+  // =======================================================================
   const updatePricingPackage = (pkgId, updatedData) => {
-    setPricingPackages((prev) =>
-      prev.map((p) => (p.id === pkgId ? { ...p, ...updatedData } : p))
-    );
+    setPricingPackages((prev) => {
+      const updated = prev.map((p) => (p.id === pkgId ? { ...p, ...updatedData } : p));
+      db.pricingPackages.saveAll(updated);
+      return updated;
+    });
   };
 
   const addPricingPackage = (newPkg) => {
@@ -682,15 +711,24 @@ export function PortfolioProvider({ children }) {
       isActive: true,
       features: Array.isArray(newPkg.features) ? newPkg.features : [],
     };
-    setPricingPackages((prev) => [...prev, pkg]);
+    setPricingPackages((prev) => {
+      const updated = [...prev, pkg];
+      db.pricingPackages.saveAll(updated);
+      return updated;
+    });
   };
 
   const deletePricingPackage = (pkgId) => {
-    setPricingPackages((prev) => prev.filter((p) => p.id !== pkgId));
+    setPricingPackages((prev) => {
+      const updated = prev.filter((p) => p.id !== pkgId);
+      db.pricingPackages.saveAll(updated);
+      return updated;
+    });
   };
 
   const updatePricingFaqs = (faqs) => {
     setPricingFaqs(faqs);
+    db.pricingFaqs.saveAll(faqs);
   };
 
   const addPricingFaq = (faq) => {
@@ -698,82 +736,128 @@ export function PortfolioProvider({ children }) {
       ...faq,
       id: faq.id || `faq-${Date.now()}`,
     };
-    setPricingFaqs((prev) => [...prev, newFaq]);
+    setPricingFaqs((prev) => {
+      const updated = [...prev, newFaq];
+      db.pricingFaqs.saveAll(updated);
+      return updated;
+    });
   };
 
   const deletePricingFaq = (faqId) => {
-    setPricingFaqs((prev) => prev.filter((f) => f.id !== faqId));
+    setPricingFaqs((prev) => {
+      const updated = prev.filter((f) => f.id !== faqId);
+      db.pricingFaqs.saveAll(updated);
+      return updated;
+    });
   };
 
   const resetPricingToDefault = () => {
     setPricingPackages(DEFAULT_PRICING_PACKAGES);
     setPricingFaqs(DEFAULT_PRICING_FAQS);
+    db.pricingPackages.saveAll(DEFAULT_PRICING_PACKAGES);
+    db.pricingFaqs.saveAll(DEFAULT_PRICING_FAQS);
   };
 
-  // Actions for My Portfolio (OWNER-001)
-  const updateOwnerProfile = async (newProfile) => {
-    setOwnerData((prev) => ({
-      ...prev,
-      profile: { ...prev.profile, ...newProfile },
-    }));
+  // =======================================================================
+  // OWNER PROFILE & WORKS ACTIONS (Direct DB Save + State Update)
+  // =======================================================================
+  const updateOwnerProfile = (newProfile) => {
+    setOwnerData((prev) => {
+      const updated = {
+        ...prev,
+        profile: { ...prev.profile, ...newProfile },
+      };
+      db.ownerData.save(updated);
+      return updated;
+    });
   };
 
   const updateOwnerProjects = (newProjects) => {
-    setOwnerData((prev) => ({
-      ...prev,
-      projects: newProjects,
-    }));
+    setOwnerData((prev) => {
+      const updated = {
+        ...prev,
+        projects: newProjects,
+      };
+      db.ownerData.save(updated);
+      return updated;
+    });
   };
 
-  const addOwnerProject = async (project) => {
+  const addOwnerProject = (project) => {
     const newProj = {
       ...project,
       id: project.id || `proj-${Date.now()}`,
       user_id: 'OWNER-001',
     };
-    setOwnerData((prev) => ({
-      ...prev,
-      projects: [newProj, ...prev.projects],
-    }));
+    setOwnerData((prev) => {
+      const updated = {
+        ...prev,
+        projects: [newProj, ...prev.projects],
+      };
+      db.ownerData.save(updated);
+      return updated;
+    });
   };
 
-  const deleteOwnerProject = async (projectId) => {
-    setOwnerData((prev) => ({
-      ...prev,
-      projects: prev.projects.filter((p) => p.id !== projectId),
-    }));
+  const deleteOwnerProject = (projectId) => {
+    setOwnerData((prev) => {
+      const updated = {
+        ...prev,
+        projects: prev.projects.filter((p) => p.id !== projectId),
+      };
+      db.ownerData.save(updated);
+      return updated;
+    });
   };
 
-  const updateOwnerSkills = async (newSkills) => {
-    setOwnerData((prev) => ({
-      ...prev,
-      skills: newSkills,
-    }));
+  const updateOwnerSkills = (newSkills) => {
+    setOwnerData((prev) => {
+      const updated = {
+        ...prev,
+        skills: newSkills,
+      };
+      db.ownerData.save(updated);
+      return updated;
+    });
   };
 
-  const updateOwnerCertificates = async (newCerts) => {
-    setOwnerData((prev) => ({
-      ...prev,
-      certificates: newCerts,
-    }));
+  const updateOwnerCertificates = (newCerts) => {
+    setOwnerData((prev) => {
+      const updated = {
+        ...prev,
+        certificates: newCerts,
+      };
+      db.ownerData.save(updated);
+      return updated;
+    });
   };
 
-  const updateOwnerSocial = async (newSocial) => {
-    setOwnerData((prev) => ({
-      ...prev,
-      socialMedia: { ...prev.socialMedia, ...newSocial },
-    }));
+  const updateOwnerSocial = (newSocial) => {
+    setOwnerData((prev) => {
+      const updated = {
+        ...prev,
+        socialMedia: { ...prev.socialMedia, ...newSocial },
+      };
+      db.ownerData.save(updated);
+      return updated;
+    });
   };
 
-  const updateOwnerCV = async (newCv) => {
-    setOwnerData((prev) => ({
-      ...prev,
-      cv: { ...prev.cv, ...newCv },
-    }));
+  const updateOwnerCV = (newCv) => {
+    setOwnerData((prev) => {
+      const updated = {
+        ...prev,
+        cv: { ...prev.cv, ...newCv },
+      };
+      db.ownerData.save(updated);
+      return updated;
+    });
   };
 
-  // Actions for Customer Management
-  const addCustomer = async (customerData) => {
+  // =======================================================================
+  // CUSTOMER MANAGEMENT ACTIONS (Direct DB Save + State Update)
+  // =======================================================================
+  const addCustomer = (customerData) => {
     const nextNum = String(customers.length + 1).padStart(3, '0');
     const newCustId = `CUST-${nextNum}`;
     const slug = (customerData.slug || customerData.name || `user-${nextNum}`)
@@ -845,30 +929,45 @@ export function PortfolioProvider({ children }) {
       },
     };
 
-    setCustomers((prev) => [newCustomer, ...prev]);
+    setCustomers((prev) => {
+      const updated = [newCustomer, ...prev];
+      db.customers.saveAll(updated);
+      return updated;
+    });
     return newCustomer;
   };
 
-  const updateCustomer = async (customerId, updatedData) => {
-    setCustomers((prev) =>
-      prev.map((c) => (c.id === customerId ? { ...c, ...updatedData } : c))
-    );
+  const updateCustomer = (customerId, updatedData) => {
+    setCustomers((prev) => {
+      const updated = prev.map((c) => (c.id === customerId ? { ...c, ...updatedData } : c));
+      db.customers.saveAll(updated);
+      return updated;
+    });
   };
 
-  const deleteCustomer = async (customerId) => {
-    setCustomers((prev) => prev.filter((c) => c.id !== customerId));
+  const deleteCustomer = (customerId) => {
+    setCustomers((prev) => {
+      const updated = prev.filter((c) => c.id !== customerId);
+      db.customers.saveAll(updated);
+      return updated;
+    });
   };
 
-  const toggleCustomerStatus = async (customerId) => {
-    const target = customers.find((c) => c.id === customerId);
-    if (!target) return;
-    const newStatus = target.status === 'active' ? 'inactive' : 'active';
-    setCustomers((prev) =>
-      prev.map((c) => (c.id === customerId ? { ...c, status: newStatus } : c))
-    );
+  const toggleCustomerStatus = (customerId) => {
+    setCustomers((prev) => {
+      const updated = prev.map((c) => {
+        if (c.id === customerId) {
+          const newStatus = c.status === 'active' ? 'inactive' : 'active';
+          return { ...c, status: newStatus };
+        }
+        return c;
+      });
+      db.customers.saveAll(updated);
+      return updated;
+    });
   };
 
-  const resetCustomerData = async (customerId) => {
+  const resetCustomerData = (customerId) => {
     const target = customers.find((c) => c.id === customerId);
     if (!target) return;
 
@@ -893,28 +992,33 @@ export function PortfolioProvider({ children }) {
       cv: { fileName: 'CV.pdf', fileUrl: '', lastUpdated: '' },
     };
 
-    setCustomers((prev) =>
-      prev.map((c) => (c.id === customerId ? { ...c, ...resetPayload } : c))
-    );
+    setCustomers((prev) => {
+      const updated = prev.map((c) => (c.id === customerId ? { ...c, ...resetPayload } : c));
+      db.customers.saveAll(updated);
+      return updated;
+    });
   };
 
-  const togglePublishCustomer = async (customerId) => {
+  const togglePublishCustomer = (customerId) => {
     const target = customers.find((c) => c.id === customerId);
     if (!target) return;
     const currentStatus = target.isPublished !== false;
     const newStatus = !currentStatus;
-    setCustomers((prev) =>
-      prev.map((c) => (c.id === customerId ? { ...c, isPublished: newStatus } : c))
-    );
+    setCustomers((prev) => {
+      const updated = prev.map((c) => (c.id === customerId ? { ...c, isPublished: newStatus } : c));
+      db.customers.saveAll(updated);
+      return updated;
+    });
   };
 
-  const setCustomerPublishStatus = async (customerId, isPublished) => {
-    setCustomers((prev) =>
-      prev.map((c) => (c.id === customerId ? { ...c, isPublished } : c))
-    );
+  const setCustomerPublishStatus = (customerId, isPublished) => {
+    setCustomers((prev) => {
+      const updated = prev.map((c) => (c.id === customerId ? { ...c, isPublished } : c));
+      db.customers.saveAll(updated);
+      return updated;
+    });
   };
 
-  // Get specific portfolio data (OWNER or CUSTOMER)
   const getPortfolioData = (targetId) => {
     if (!targetId || targetId === 'OWNER-001' || targetId === 'master') {
       return ownerData;
@@ -923,8 +1027,10 @@ export function PortfolioProvider({ children }) {
     return found || ownerData;
   };
 
-  // Actions for Master Template Management
-  const addTemplate = async (templateData) => {
+  // =======================================================================
+  // TEMPLATE MANAGEMENT ACTIONS (Direct DB Save + State Update)
+  // =======================================================================
+  const addTemplate = (templateData) => {
     const nextNum = String(templates.length + 1).padStart(3, '0');
     const newTmplId = `TMPL-${nextNum}`;
     const isDef = templateData.isDefault || false;
@@ -953,14 +1059,16 @@ export function PortfolioProvider({ children }) {
 
     setTemplates((prev) => {
       const updated = isDef ? prev.map((t) => ({ ...t, isDefault: false })) : [...prev];
-      return [newTemplate, ...updated];
+      const result = [newTemplate, ...updated];
+      db.templates.saveAll(result);
+      return result;
     });
     return newTemplate;
   };
 
-  const updateTemplate = async (templateId, updatedData) => {
-    setTemplates((prev) =>
-      prev.map((t) => {
+  const updateTemplate = (templateId, updatedData) => {
+    setTemplates((prev) => {
+      const updated = prev.map((t) => {
         if (t.id === templateId) {
           return { ...t, ...updatedData };
         }
@@ -968,24 +1076,32 @@ export function PortfolioProvider({ children }) {
           return { ...t, isDefault: false };
         }
         return t;
-      })
-    );
+      });
+      db.templates.saveAll(updated);
+      return updated;
+    });
   };
 
-  const deleteTemplate = async (templateId) => {
-    setTemplates((prev) => prev.filter((t) => t.id !== templateId));
+  const deleteTemplate = (templateId) => {
+    setTemplates((prev) => {
+      const updated = prev.filter((t) => t.id !== templateId);
+      db.templates.saveAll(updated);
+      return updated;
+    });
   };
 
-  const setDefaultTemplate = async (templateId) => {
-    setTemplates((prev) =>
-      prev.map((t) => ({
+  const setDefaultTemplate = (templateId) => {
+    setTemplates((prev) => {
+      const updated = prev.map((t) => ({
         ...t,
         isDefault: t.id === templateId,
-      }))
-    );
+      }));
+      db.templates.saveAll(updated);
+      return updated;
+    });
   };
 
-  const duplicateTemplate = async (templateId) => {
+  const duplicateTemplate = (templateId) => {
     const target = templates.find((t) => t.id === templateId);
     if (!target) return null;
     const nextNum = String(templates.length + 1).padStart(3, '0');
@@ -1012,19 +1128,26 @@ export function PortfolioProvider({ children }) {
       createdAt: new Date().toISOString().split('T')[0],
     };
 
-    setTemplates((prev) => [cloned, ...prev]);
+    setTemplates((prev) => {
+      const updated = [cloned, ...prev];
+      db.templates.saveAll(updated);
+      return updated;
+    });
     return cloned;
   };
 
-  const migrateCustomerTemplate = async (customerId, newTemplateId) => {
-    setCustomers((prev) =>
-      prev.map((c) => (c.id === customerId ? { ...c, templateId: newTemplateId } : c))
-    );
+  const migrateCustomerTemplate = (customerId, newTemplateId) => {
+    setCustomers((prev) => {
+      const updated = prev.map((c) => (c.id === customerId ? { ...c, templateId: newTemplateId } : c));
+      db.customers.saveAll(updated);
+      return updated;
+    });
   };
 
-  // Payment & Sales Operations
-  const createOrder = async (orderData) => {
-    // 1. Create or ensure customer exists with PENDING status (Requires Admin Master approval)
+  // =======================================================================
+  // PAYMENT & ORDERS ACTIONS (Direct DB Save + State Update)
+  // =======================================================================
+  const createOrder = (orderData) => {
     const nextCustNum = String(customers.length + 1).padStart(3, '0');
     const newCustId = `CUST-${nextCustNum}`;
     const cleanSlug = (orderData.slug || orderData.buyerName || 'user')
@@ -1038,7 +1161,7 @@ export function PortfolioProvider({ children }) {
       slug: cleanSlug,
       email: orderData.buyerEmail,
       templateId: orderData.templateId || 'TMPL-001',
-      status: 'pending', // 'pending' = Menunggu persetujuan Admin Master agar bisa login
+      status: 'pending',
       isPublished: false,
       accessPin: orderData.accessPin || '1234',
       createdAt: new Date().toISOString().split('T')[0],
@@ -1066,9 +1189,12 @@ export function PortfolioProvider({ children }) {
       },
     };
 
-    setCustomers((prev) => [newCustomer, ...prev]);
+    setCustomers((prev) => {
+      const updated = [newCustomer, ...prev];
+      db.customers.saveAll(updated);
+      return updated;
+    });
 
-    // 2. Create Transaction Record (Pending Admin Master Verification)
     const nextTxNum = String(transactions.length + 1).padStart(4, '0');
     const newTx = {
       id: `TRX-${Date.now().toString().slice(-6)}-${nextTxNum}`,
@@ -1080,65 +1206,90 @@ export function PortfolioProvider({ children }) {
       templateName: orderData.templateName || 'Industrial Dark Red Master',
       amount: Number(orderData.amount) || 499000,
       paymentMethod: orderData.paymentMethod || 'QRIS Instant',
-      status: 'pending', // 'pending' = Menunggu verifikasi Admin Master
+      status: 'pending',
       customerId: newCustId,
       accessPin: orderData.accessPin || '1234',
       createdAt: new Date().toISOString().replace('T', ' ').slice(0, 16),
     };
 
-    setTransactions((prev) => [newTx, ...prev]);
+    setTransactions((prev) => {
+      const updated = [newTx, ...prev];
+      db.transactions.saveAll(updated);
+      return updated;
+    });
 
     return { transaction: newTx, customer: newCustomer };
   };
 
-  const verifyPayment = async (txId) => {
+  const verifyPayment = (txId) => {
     const target = transactions.find((t) => t.id === txId);
     if (!target) return;
-    setTransactions((prev) =>
-      prev.map((t) => (t.id === txId ? { ...t, status: 'lunas' } : t))
-    );
+    setTransactions((prev) => {
+      const updated = prev.map((t) => (t.id === txId ? { ...t, status: 'lunas' } : t));
+      db.transactions.saveAll(updated);
+      return updated;
+    });
 
     if (target.customerId) {
-      setCustomers((prev) =>
-        prev.map((c) => (c.id === target.customerId ? { ...c, status: 'active', isPublished: true } : c))
-      );
+      setCustomers((prev) => {
+        const updated = prev.map((c) => (c.id === target.customerId ? { ...c, status: 'active', isPublished: true } : c));
+        db.customers.saveAll(updated);
+        return updated;
+      });
     }
   };
 
-  const rejectPayment = async (txId) => {
+  const rejectPayment = (txId) => {
     const target = transactions.find((t) => t.id === txId);
     if (!target) return;
-    setTransactions((prev) =>
-      prev.map((t) => (t.id === txId ? { ...t, status: 'ditolak' } : t))
-    );
+    setTransactions((prev) => {
+      const updated = prev.map((t) => (t.id === txId ? { ...t, status: 'ditolak' } : t));
+      db.transactions.saveAll(updated);
+      return updated;
+    });
 
     if (target.customerId) {
-      setCustomers((prev) =>
-        prev.map((c) => (c.id === target.customerId ? { ...c, status: 'inactive' } : c))
-      );
+      setCustomers((prev) => {
+        const updated = prev.map((c) => (c.id === target.customerId ? { ...c, status: 'inactive' } : c));
+        db.customers.saveAll(updated);
+        return updated;
+      });
     }
   };
 
-  const approveCustomerDirectly = async (customerId) => {
-    setCustomers((prev) =>
-      prev.map((c) => (c.id === customerId ? { ...c, status: 'active', isPublished: true } : c))
-    );
+  const approveCustomerDirectly = (customerId) => {
+    setCustomers((prev) => {
+      const updated = prev.map((c) => (c.id === customerId ? { ...c, status: 'active', isPublished: true } : c));
+      db.customers.saveAll(updated);
+      return updated;
+    });
 
-    // Also update any pending transaction for this customer
-    setTransactions((prev) =>
-      prev.map((t) => (t.customerId === customerId ? { ...t, status: 'lunas' } : t))
-    );
+    setTransactions((prev) => {
+      const updated = prev.map((t) => (t.customerId === customerId ? { ...t, status: 'lunas' } : t));
+      db.transactions.saveAll(updated);
+      return updated;
+    });
   };
 
-  const deleteTransaction = async (txId) => {
-    setTransactions((prev) => prev.filter((t) => t.id !== txId));
+  const deleteTransaction = (txId) => {
+    setTransactions((prev) => {
+      const updated = prev.filter((t) => t.id !== txId);
+      db.transactions.saveAll(updated);
+      return updated;
+    });
   };
 
   const updatePaymentSettings = (newSettings) => {
-    setPaymentSettings((prev) => ({ ...prev, ...newSettings }));
+    setPaymentSettings((prev) => {
+      const updated = { ...prev, ...newSettings };
+      db.paymentSettings.save(updated);
+      return updated;
+    });
   };
 
-  // Backup and Restore
+  // =======================================================================
+  // BACKUP & RESET
+  // =======================================================================
   const exportDatabaseBackup = () => {
     const backup = {
       version: '2.0',
@@ -1165,14 +1316,35 @@ export function PortfolioProvider({ children }) {
   const importDatabaseBackup = (jsonContent) => {
     try {
       const parsed = typeof jsonContent === 'string' ? JSON.parse(jsonContent) : jsonContent;
-      if (parsed.ownerData) setOwnerData(parsed.ownerData);
-      if (Array.isArray(parsed.customers)) setCustomers(parsed.customers);
-      if (Array.isArray(parsed.templates)) setTemplates(parsed.templates);
-      if (Array.isArray(parsed.transactions)) setTransactions(parsed.transactions);
-      if (parsed.paymentSettings) setPaymentSettings(parsed.paymentSettings);
-      if (Array.isArray(parsed.pricingPackages)) setPricingPackages(parsed.pricingPackages);
-      if (Array.isArray(parsed.pricingFaqs)) setPricingFaqs(parsed.pricingFaqs);
-      return { success: true, message: 'Database backup berhasil diimpor!' };
+      if (parsed.ownerData) {
+        setOwnerData(parsed.ownerData);
+        db.ownerData.save(parsed.ownerData);
+      }
+      if (Array.isArray(parsed.customers)) {
+        setCustomers(parsed.customers);
+        db.customers.saveAll(parsed.customers);
+      }
+      if (Array.isArray(parsed.templates)) {
+        setTemplates(parsed.templates);
+        db.templates.saveAll(parsed.templates);
+      }
+      if (Array.isArray(parsed.transactions)) {
+        setTransactions(parsed.transactions);
+        db.transactions.saveAll(parsed.transactions);
+      }
+      if (parsed.paymentSettings) {
+        setPaymentSettings(parsed.paymentSettings);
+        db.paymentSettings.save(parsed.paymentSettings);
+      }
+      if (Array.isArray(parsed.pricingPackages)) {
+        setPricingPackages(parsed.pricingPackages);
+        db.pricingPackages.saveAll(parsed.pricingPackages);
+      }
+      if (Array.isArray(parsed.pricingFaqs)) {
+        setPricingFaqs(parsed.pricingFaqs);
+        db.pricingFaqs.saveAll(parsed.pricingFaqs);
+      }
+      return { success: true, message: 'Database backup berhasil diimpor & disimpan ke cloud!' };
     } catch {
       return { success: false, message: 'Format file backup tidak valid.' };
     }
@@ -1186,6 +1358,14 @@ export function PortfolioProvider({ children }) {
     setPaymentSettings(DEFAULT_PAYMENT_SETTINGS);
     setPricingPackages(DEFAULT_PRICING_PACKAGES);
     setPricingFaqs(DEFAULT_PRICING_FAQS);
+
+    db.ownerData.save(DEFAULT_OWNER_DATA);
+    db.customers.saveAll(DEFAULT_CUSTOMERS);
+    db.templates.saveAll(DEFAULT_TEMPLATES);
+    db.transactions.saveAll(DEFAULT_TRANSACTIONS);
+    db.paymentSettings.save(DEFAULT_PAYMENT_SETTINGS);
+    db.pricingPackages.saveAll(DEFAULT_PRICING_PACKAGES);
+    db.pricingFaqs.saveAll(DEFAULT_PRICING_FAQS);
   };
 
   return (

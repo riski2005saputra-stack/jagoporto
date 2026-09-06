@@ -11,7 +11,7 @@ import { supabase, isSupabaseConnected } from './supabase';
 // =========================================================================
 // LOCAL STORAGE KEYS
 // =========================================================================
-const LOCAL_KEYS = {
+export const LOCAL_KEYS = {
   OWNER: 'riski_owner_portfolio_v1',
   CUSTOMERS: 'riski_customers_list_v1',
   TEMPLATES: 'riski_templates_list_v1',
@@ -21,7 +21,7 @@ const LOCAL_KEYS = {
   PRICING_FAQS: 'riski_pricing_faqs_v1',
 };
 
-function readLocal(key, fallback = null) {
+export function readLocal(key, fallback = null) {
   try {
     const raw = localStorage.getItem(key);
     if (!raw) return fallback;
@@ -31,7 +31,7 @@ function readLocal(key, fallback = null) {
   }
 }
 
-function writeLocal(key, data) {
+export function writeLocal(key, data) {
   try {
     localStorage.setItem(key, JSON.stringify(data));
   } catch (e) {
