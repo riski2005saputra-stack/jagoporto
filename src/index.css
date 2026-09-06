@@ -1,0 +1,166 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-main: #05080D;
+    --text-primary: #F8FAFC;
+    --accent-maroon: #881337;
+    --accent-white: #FFFFFF;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background-color: #05080D;
+    color: #F8FAFC;
+    overflow-x: clip;
+  }
+
+  /* Custom subtle scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #05080D;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #1E293B;
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #334155;
+  }
+}
+
+/* Atmospheric Oil & Gas Industry at Night Background */
+.bg-office-atmosphere {
+  position: relative;
+  background-image: 
+    linear-gradient(to bottom, rgba(5, 8, 13, 0.40) 0%, rgba(5, 8, 13, 0.50) 50%, rgba(5, 8, 13, 0.65) 100%),
+    url('/src/assets/oil-gas-bg.jpg');
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+}
+
+/* Pure Code-Based Maroon / Burgundy Background for Hero */
+.bg-hero-maroon {
+  position: relative;
+  background-color: #380816;
+  background-image: 
+    radial-gradient(ellipse 90% 80% at 50% 45%, #7a122c 0%, #4f0a1b 45%, #2c040e 85%, #180208 100%),
+    radial-gradient(circle at 18% 25%, rgba(190, 24, 66, 0.28) 0%, transparent 45%),
+    radial-gradient(circle at 82% 75%, rgba(140, 18, 52, 0.22) 0%, transparent 45%);
+  box-shadow: inset 0 0 140px rgba(10, 0, 3, 0.75);
+}
+
+/* Hollow / Outline Typography */
+.text-outline-hollow {
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  -webkit-text-stroke-width: 1.5px;
+  -webkit-text-stroke-color: rgba(255, 230, 238, 0.45);
+  letter-spacing: 0.05em;
+  font-family: 'Bebas Neue', 'Oswald', sans-serif;
+  user-select: none;
+}
+
+/* Glassmorphism Classes */
+.glass-nav {
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.glass-box {
+  background: rgba(11, 17, 26, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.glass-box-hover {
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.glass-box-hover:hover {
+  background: rgba(15, 23, 42, 0.9);
+  border-color: rgba(255, 255, 255, 0.5);
+  transform: translateY(-2px);
+}
+
+/* ========================================================
+   SCOPED LIGHT MODE FOR ADMIN MASTER ONLY
+   ======================================================== */
+.admin-theme-light {
+  background-color: #F8FAFC !important;
+  color: #0F172A !important;
+}
+
+.admin-theme-light .bg-\[\#05080E\],
+.admin-theme-light .bg-\[\#090E17\],
+.admin-theme-light .bg-\[\#090E17\]\/90,
+.admin-theme-light .bg-\[\#090E17\]\/95,
+.admin-theme-light .bg-\[\#090E17\]\/85,
+.admin-theme-light .bg-\[\#060B12\],
+.admin-theme-light .bg-\[\#04080f\],
+.admin-theme-light .bg-\[\#0e1a2c\] {
+  background-color: #FFFFFF !important;
+  color: #0F172A !important;
+  border-color: #E2E8F0 !important;
+}
+
+.admin-theme-light input[type="text"],
+.admin-theme-light input[type="email"],
+.admin-theme-light input[type="password"],
+.admin-theme-light input[type="number"],
+.admin-theme-light input[type="tel"],
+.admin-theme-light input[type="url"],
+.admin-theme-light textarea,
+.admin-theme-light select {
+  background-color: #FFFFFF !important;
+  color: #0F172A !important;
+  border-color: #CBD5E1 !important;
+}
+
+.admin-theme-light input:focus,
+.admin-theme-light textarea:focus,
+.admin-theme-light select:focus {
+  border-color: #E11D48 !important;
+  outline: none !important;
+  box-shadow: 0 0 0 2px rgba(225, 29, 72, 0.2) !important;
+}
+
+.admin-theme-light .border-white\/10,
+.admin-theme-light .border-white\/15,
+.admin-theme-light .border-white\/20,
+.admin-theme-light .border-slate-700,
+.admin-theme-light .border-slate-800 {
+  border-color: #E2E8F0 !important;
+}
+
+.admin-theme-light .text-slate-400,
+.admin-theme-light .text-slate-300 {
+  color: #475569 !important;
+}
+
+.admin-theme-light .text-white {
+  color: #0F172A !important;
+}
+
+.admin-theme-light .bg-rose-600 .text-white,
+.admin-theme-light .bg-rose-900 .text-white,
+.admin-theme-light .bg-emerald-600 .text-white,
+.admin-theme-light .bg-blue-600 .text-white,
+.admin-theme-light .bg-indigo-600 .text-white,
+.admin-theme-light .bg-gradient-to-r .text-white,
+.admin-theme-light .bg-gradient-to-br .text-white,
+.admin-theme-light .bg-gradient-to-r,
+.admin-theme-light button[type="submit"] .text-white,
+.admin-theme-light button.text-white,
+.admin-theme-light a.text-white {
+  color: #FFFFFF !important;
+}
