@@ -478,7 +478,7 @@ export const db = {
           const { data, error } = await supabase
             .from('payment_settings')
             .select('data')
-            .limit(1)
+            .eq('id', 'default')
             .single();
           if (!error && data?.data) {
             writeLocal(LOCAL_KEYS.PAYMENT_SETTINGS, data.data);

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   CreditCard,
@@ -36,8 +36,14 @@ export default function AdminPayments() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [saveToast, setSaveToast] = useState('');
 
-  // Payment Settings Local Form State
+  // Payment Settings Local Form State (Synced with Context & Cloud)
   const [settingsForm, setSettingsForm] = useState(paymentSettings);
+
+  useEffect(() => {
+    if (paymentSettings) {
+      setSettingsForm(paymentSettings);
+    }
+  }, [paymentSettings]);
 
   const triggerToast = (msg) => {
     setSaveToast(msg);
