@@ -8,13 +8,13 @@ const AUTH_STORAGE_KEYS = {
 };
 
 export function AuthProvider({ children }) {
-  // Master Owner Auth State (Default: Authenticated in local dev for smooth workflow, with option to lock)
+  // Master Owner Auth State (Strict Authentication: Default False, Requires PIN 2026)
   const [isMasterLoggedIn, setIsMasterLoggedIn] = useState(() => {
     try {
       const saved = localStorage.getItem(AUTH_STORAGE_KEYS.MASTER_SESSION);
-      return saved ? JSON.parse(saved) : true;
+      return saved ? JSON.parse(saved) === true : false;
     } catch {
-      return true;
+      return false;
     }
   });
 
