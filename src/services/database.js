@@ -1,15 +1,15 @@
 /**
  * JAGOPORTO — UNIVERSAL DATABASE & BACKEND SERVICE LAYER
- * Supports:
- * 1. Cloud Supabase / PostgreSQL Client (when VITE_SUPABASE_URL is provided)
- * 2. Fallback to Local Transactional Engine (Offline-First / Zero-Config)
- * Version: 2.0 (September 2026)
+ * Dual Storage Engine:
+ * 1. Cloud Supabase / PostgreSQL Client (Real-time Cloud Sync)
+ * 2. Instant Local Transaction Engine (Zero Latency / Offline-First)
+ * Version: 2.5 (September 2026)
  */
 
 import { supabase, isSupabaseConnected } from './supabase';
 
 // =========================================================================
-// LOCAL STORAGE FALLBACK (used when Supabase is not configured)
+// LOCAL STORAGE KEYS
 // =========================================================================
 const LOCAL_KEYS = {
   OWNER: 'riski_owner_portfolio_v1',
@@ -40,7 +40,7 @@ function writeLocal(key, data) {
 }
 
 // =========================================================================
-// DATABASE SERVICE — Auto-detects Supabase or falls back to localStorage
+// DATABASE SERVICE
 // =========================================================================
 export const db = {
   isCloudConnected: isSupabaseConnected,
@@ -57,30 +57,43 @@ export const db = {
   ownerData: {
     get: async () => {
       if (isSupabaseConnected()) {
-        const { data, error } = await supabase
-          .from('owner_data')
-          .select('data')
-          .eq('id', 'OWNER-001')
-          .single();
-        if (error || !data) return null;
-        return data.data;
+        try {
+          const { data, error } = await supabase
+            .from('owner_data')
+            .select('data')
+            .eq('id', 'OWNER-001')
+            .single();
+          if (!error && data?.data) {
+            writeLocal(LOCAL_KEYS.OWNER, data.data);
+            return data.data;
+          }
+        } catch (e) {
+          console.warn('[DB Cloud] ownerData.get failed, reading local:', e);
+        }
       }
       return readLocal(LOCAL_KEYS.OWNER, null);
     },
 
     save: async (ownerObj) => {
-      if (isSupabaseConnected()) {
-        const { error } = await supabase
-          .from('owner_data')
-          .upsert({
-            id: 'OWNER-001',
-            data: ownerObj,
-            updated_at: new Date().toISOString(),
-          });
-        if (error) console.error('[DB Cloud] ownerData.save error:', error);
-        return !error;
-      }
+      // 1. Save locally immediately
       writeLocal(LOCAL_KEYS.OWNER, ownerObj);
+
+      // 2. Sync to Supabase Cloud
+      if (isSupabaseConnected()) {
+        try {
+          const { error } = await supabase
+            .from('owner_data')
+            .upsert({
+              id: 'OWNER-001',
+              data: ownerObj,
+              updated_at: new Date().toISOString(),
+            });
+          if (error) console.error('[DB Cloud] ownerData.save error:', error);
+          return !error;
+        } catch (e) {
+          console.error('[DB Cloud] ownerData.save exception:', e);
+        }
+      }
       return true;
     },
   },
@@ -91,90 +104,109 @@ export const db = {
   customers: {
     list: async () => {
       if (isSupabaseConnected()) {
-        const { data, error } = await supabase
-          .from('customers')
-          .select('id, data, created_at')
-          .order('created_at', { ascending: false });
-        if (error) {
-          console.error('[DB Cloud] customers.list error:', error);
-          return [];
+        try {
+          const { data, error } = await supabase
+            .from('customers')
+            .select('id, data, created_at')
+            .order('created_at', { ascending: false });
+          if (!error && data && data.length > 0) {
+            const list = data.map((row) => ({ ...row.data, id: row.id }));
+            writeLocal(LOCAL_KEYS.CUSTOMERS, list);
+            return list;
+          }
+        } catch (e) {
+          console.warn('[DB Cloud] customers.list failed, reading local:', e);
         }
-        return (data || []).map((row) => ({ ...row.data, id: row.id }));
       }
       return readLocal(LOCAL_KEYS.CUSTOMERS, []);
     },
 
     create: async (customerObj) => {
-      if (isSupabaseConnected()) {
-        const { error } = await supabase
-          .from('customers')
-          .insert({
-            id: customerObj.id,
-            data: customerObj,
-          });
-        if (error) console.error('[DB Cloud] customers.create error:', error);
-        return !error;
-      }
       const list = readLocal(LOCAL_KEYS.CUSTOMERS, []);
       list.unshift(customerObj);
       writeLocal(LOCAL_KEYS.CUSTOMERS, list);
+
+      if (isSupabaseConnected()) {
+        try {
+          const { error } = await supabase
+            .from('customers')
+            .insert({
+              id: customerObj.id,
+              data: customerObj,
+            });
+          if (error) console.error('[DB Cloud] customers.create error:', error);
+          return !error;
+        } catch (e) {
+          console.error('[DB Cloud] customers.create exception:', e);
+        }
+      }
       return true;
     },
 
     update: async (id, updatedData) => {
-      if (isSupabaseConnected()) {
-        // Fetch current, merge, save
-        const { data: existing } = await supabase
-          .from('customers')
-          .select('data')
-          .eq('id', id)
-          .single();
-        const merged = { ...(existing?.data || {}), ...updatedData, id };
-        const { error } = await supabase
-          .from('customers')
-          .upsert({
-            id,
-            data: merged,
-            updated_at: new Date().toISOString(),
-          });
-        if (error) console.error('[DB Cloud] customers.update error:', error);
-        return !error;
-      }
       const list = readLocal(LOCAL_KEYS.CUSTOMERS, []);
-      const updated = list.map((c) => (c.id === id ? { ...c, ...updatedData } : c));
-      writeLocal(LOCAL_KEYS.CUSTOMERS, updated);
+      const target = list.find((c) => c.id === id) || {};
+      const merged = { ...target, ...updatedData, id };
+      const updatedList = list.map((c) => (c.id === id ? merged : c));
+      writeLocal(LOCAL_KEYS.CUSTOMERS, updatedList);
+
+      if (isSupabaseConnected()) {
+        try {
+          const { error } = await supabase
+            .from('customers')
+            .upsert({
+              id,
+              data: merged,
+              updated_at: new Date().toISOString(),
+            });
+          if (error) console.error('[DB Cloud] customers.update error:', error);
+          return !error;
+        } catch (e) {
+          console.error('[DB Cloud] customers.update exception:', e);
+        }
+      }
       return true;
     },
 
     delete: async (id) => {
-      if (isSupabaseConnected()) {
-        const { error } = await supabase
-          .from('customers')
-          .delete()
-          .eq('id', id);
-        if (error) console.error('[DB Cloud] customers.delete error:', error);
-        return !error;
-      }
       const list = readLocal(LOCAL_KEYS.CUSTOMERS, []);
       writeLocal(LOCAL_KEYS.CUSTOMERS, list.filter((c) => c.id !== id));
+
+      if (isSupabaseConnected()) {
+        try {
+          const { error } = await supabase
+            .from('customers')
+            .delete()
+            .eq('id', id);
+          if (error) console.error('[DB Cloud] customers.delete error:', error);
+          return !error;
+        } catch (e) {
+          console.error('[DB Cloud] customers.delete exception:', e);
+        }
+      }
       return true;
     },
 
     saveAll: async (customersArray) => {
-      if (isSupabaseConnected()) {
-        // Upsert all customers at once
-        const rows = customersArray.map((c) => ({
-          id: c.id,
-          data: c,
-          updated_at: new Date().toISOString(),
-        }));
-        const { error } = await supabase
-          .from('customers')
-          .upsert(rows);
-        if (error) console.error('[DB Cloud] customers.saveAll error:', error);
-        return !error;
-      }
       writeLocal(LOCAL_KEYS.CUSTOMERS, customersArray);
+
+      if (isSupabaseConnected()) {
+        try {
+          const rows = customersArray.map((c) => ({
+            id: c.id,
+            data: c,
+            updated_at: new Date().toISOString(),
+          }));
+          if (rows.length > 0) {
+            const { error } = await supabase
+              .from('customers')
+              .upsert(rows);
+            if (error) console.error('[DB Cloud] customers.saveAll error:', error);
+          }
+        } catch (e) {
+          console.error('[DB Cloud] customers.saveAll exception:', e);
+        }
+      }
       return true;
     },
   },
@@ -185,93 +217,110 @@ export const db = {
   templates: {
     list: async () => {
       if (isSupabaseConnected()) {
-        const { data, error } = await supabase
-          .from('templates')
-          .select('id, data, created_at')
-          .order('created_at', { ascending: true });
-        if (error) {
-          console.error('[DB Cloud] templates.list error:', error);
-          return [];
+        try {
+          const { data, error } = await supabase
+            .from('templates')
+            .select('id, data, created_at')
+            .order('created_at', { ascending: true });
+          if (!error && data && data.length > 0) {
+            const list = data.map((row) => ({ ...row.data, id: row.id }));
+            writeLocal(LOCAL_KEYS.TEMPLATES, list);
+            return list;
+          }
+        } catch (e) {
+          console.warn('[DB Cloud] templates.list failed, reading local:', e);
         }
-        return (data || []).map((row) => ({ ...row.data, id: row.id }));
       }
       return readLocal(LOCAL_KEYS.TEMPLATES, []);
     },
 
     create: async (templateObj) => {
-      if (isSupabaseConnected()) {
-        const { error } = await supabase
-          .from('templates')
-          .insert({
-            id: templateObj.id,
-            data: templateObj,
-          });
-        if (error) console.error('[DB Cloud] templates.create error:', error);
-        return !error;
-      }
       const list = readLocal(LOCAL_KEYS.TEMPLATES, []);
       list.push(templateObj);
       writeLocal(LOCAL_KEYS.TEMPLATES, list);
+
+      if (isSupabaseConnected()) {
+        try {
+          const { error } = await supabase
+            .from('templates')
+            .insert({
+              id: templateObj.id,
+              data: templateObj,
+            });
+          if (error) console.error('[DB Cloud] templates.create error:', error);
+        } catch (e) {
+          console.error('[DB Cloud] templates.create exception:', e);
+        }
+      }
       return true;
     },
 
     add: async (templateObj) => {
-      // Alias for create (backward compat)
       return db.templates.create(templateObj);
     },
 
     update: async (id, updatedData) => {
-      if (isSupabaseConnected()) {
-        const { data: existing } = await supabase
-          .from('templates')
-          .select('data')
-          .eq('id', id)
-          .single();
-        const merged = { ...(existing?.data || {}), ...updatedData, id };
-        const { error } = await supabase
-          .from('templates')
-          .upsert({
-            id,
-            data: merged,
-            updated_at: new Date().toISOString(),
-          });
-        if (error) console.error('[DB Cloud] templates.update error:', error);
-        return !error;
-      }
       const list = readLocal(LOCAL_KEYS.TEMPLATES, []);
-      const updated = list.map((t) => (t.id === id ? { ...t, ...updatedData } : t));
-      writeLocal(LOCAL_KEYS.TEMPLATES, updated);
+      const target = list.find((t) => t.id === id) || {};
+      const merged = { ...target, ...updatedData, id };
+      const updatedList = list.map((t) => (t.id === id ? merged : t));
+      writeLocal(LOCAL_KEYS.TEMPLATES, updatedList);
+
+      if (isSupabaseConnected()) {
+        try {
+          const { error } = await supabase
+            .from('templates')
+            .upsert({
+              id,
+              data: merged,
+              updated_at: new Date().toISOString(),
+            });
+          if (error) console.error('[DB Cloud] templates.update error:', error);
+        } catch (e) {
+          console.error('[DB Cloud] templates.update exception:', e);
+        }
+      }
       return true;
     },
 
     delete: async (id) => {
-      if (isSupabaseConnected()) {
-        const { error } = await supabase
-          .from('templates')
-          .delete()
-          .eq('id', id);
-        if (error) console.error('[DB Cloud] templates.delete error:', error);
-        return !error;
-      }
       const list = readLocal(LOCAL_KEYS.TEMPLATES, []);
       writeLocal(LOCAL_KEYS.TEMPLATES, list.filter((t) => t.id !== id));
+
+      if (isSupabaseConnected()) {
+        try {
+          const { error } = await supabase
+            .from('templates')
+            .delete()
+            .eq('id', id);
+          if (error) console.error('[DB Cloud] templates.delete error:', error);
+        } catch (e) {
+          console.error('[DB Cloud] templates.delete exception:', e);
+        }
+      }
       return true;
     },
 
     saveAll: async (templatesArray) => {
-      if (isSupabaseConnected()) {
-        const rows = templatesArray.map((t) => ({
-          id: t.id,
-          data: t,
-          updated_at: new Date().toISOString(),
-        }));
-        const { error } = await supabase
-          .from('templates')
-          .upsert(rows);
-        if (error) console.error('[DB Cloud] templates.saveAll error:', error);
-        return !error;
-      }
       writeLocal(LOCAL_KEYS.TEMPLATES, templatesArray);
+
+      if (isSupabaseConnected()) {
+        try {
+          const rows = templatesArray.map((t) => ({
+            id: t.id,
+            data: t,
+            updated_at: new Date().toISOString(),
+          }));
+          if (rows.length > 0) {
+            const { error } = await supabase
+              .from('templates')
+              .upsert(rows);
+            if (error) console.error('[DB Cloud] templates.saveAll error:', error);
+          }
+        } catch (e) {
+          console.error('[DB Cloud] templates.saveAll exception:', e);
+        }
+      }
       return true;
     },
   },
@@ -282,88 +331,106 @@ export const db = {
   transactions: {
     list: async () => {
       if (isSupabaseConnected()) {
-        const { data, error } = await supabase
-          .from('transactions')
-          .select('id, data, created_at')
-          .order('created_at', { ascending: false });
-        if (error) {
-          console.error('[DB Cloud] transactions.list error:', error);
-          return [];
+        try {
+          const { data, error } = await supabase
+            .from('transactions')
+            .select('id, data, created_at')
+            .order('created_at', { ascending: false });
+          if (!error && data && data.length > 0) {
+            const list = data.map((row) => ({ ...row.data, id: row.id }));
+            writeLocal(LOCAL_KEYS.TRANSACTIONS, list);
+            return list;
+          }
+        } catch (e) {
+          console.warn('[DB Cloud] transactions.list failed, reading local:', e);
         }
-        return (data || []).map((row) => ({ ...row.data, id: row.id }));
       }
       return readLocal(LOCAL_KEYS.TRANSACTIONS, []);
     },
 
     create: async (txObj) => {
-      if (isSupabaseConnected()) {
-        const { error } = await supabase
-          .from('transactions')
-          .insert({
-            id: txObj.id,
-            data: txObj,
-          });
-        if (error) console.error('[DB Cloud] transactions.create error:', error);
-        return !error;
-      }
       const list = readLocal(LOCAL_KEYS.TRANSACTIONS, []);
       list.unshift(txObj);
       writeLocal(LOCAL_KEYS.TRANSACTIONS, list);
+
+      if (isSupabaseConnected()) {
+        try {
+          const { error } = await supabase
+            .from('transactions')
+            .insert({
+              id: txObj.id,
+              data: txObj,
+            });
+          if (error) console.error('[DB Cloud] transactions.create error:', error);
+        } catch (e) {
+          console.error('[DB Cloud] transactions.create exception:', e);
+        }
+      }
       return true;
     },
 
     update: async (id, updatedData) => {
-      if (isSupabaseConnected()) {
-        const { data: existing } = await supabase
-          .from('transactions')
-          .select('data')
-          .eq('id', id)
-          .single();
-        const merged = { ...(existing?.data || {}), ...updatedData, id };
-        const { error } = await supabase
-          .from('transactions')
-          .upsert({
-            id,
-            data: merged,
-            updated_at: new Date().toISOString(),
-          });
-        if (error) console.error('[DB Cloud] transactions.update error:', error);
-        return !error;
-      }
       const list = readLocal(LOCAL_KEYS.TRANSACTIONS, []);
-      const updated = list.map((t) => (t.id === id ? { ...t, ...updatedData } : t));
-      writeLocal(LOCAL_KEYS.TRANSACTIONS, updated);
+      const target = list.find((t) => t.id === id) || {};
+      const merged = { ...target, ...updatedData, id };
+      const updatedList = list.map((t) => (t.id === id ? merged : t));
+      writeLocal(LOCAL_KEYS.TRANSACTIONS, updatedList);
+
+      if (isSupabaseConnected()) {
+        try {
+          const { error } = await supabase
+            .from('transactions')
+            .upsert({
+              id,
+              data: merged,
+              updated_at: new Date().toISOString(),
+            });
+          if (error) console.error('[DB Cloud] transactions.update error:', error);
+        } catch (e) {
+          console.error('[DB Cloud] transactions.update exception:', e);
+        }
+      }
       return true;
     },
 
     delete: async (id) => {
-      if (isSupabaseConnected()) {
-        const { error } = await supabase
-          .from('transactions')
-          .delete()
-          .eq('id', id);
-        if (error) console.error('[DB Cloud] transactions.delete error:', error);
-        return !error;
-      }
       const list = readLocal(LOCAL_KEYS.TRANSACTIONS, []);
       writeLocal(LOCAL_KEYS.TRANSACTIONS, list.filter((t) => t.id !== id));
+
+      if (isSupabaseConnected()) {
+        try {
+          const { error } = await supabase
+            .from('transactions')
+            .delete()
+            .eq('id', id);
+          if (error) console.error('[DB Cloud] transactions.delete error:', error);
+        } catch (e) {
+          console.error('[DB Cloud] transactions.delete exception:', e);
+        }
+      }
       return true;
     },
 
     saveAll: async (txArray) => {
-      if (isSupabaseConnected()) {
-        const rows = txArray.map((t) => ({
-          id: t.id,
-          data: t,
-          updated_at: new Date().toISOString(),
-        }));
-        const { error } = await supabase
-          .from('transactions')
-          .upsert(rows);
-        if (error) console.error('[DB Cloud] transactions.saveAll error:', error);
-        return !error;
-      }
       writeLocal(LOCAL_KEYS.TRANSACTIONS, txArray);
+
+      if (isSupabaseConnected()) {
+        try {
+          const rows = txArray.map((t) => ({
+            id: t.id,
+            data: t,
+            updated_at: new Date().toISOString(),
+          }));
+          if (rows.length > 0) {
+            const { error } = await supabase
+              .from('transactions')
+              .upsert(rows);
+            if (error) console.error('[DB Cloud] transactions.saveAll error:', error);
+          }
+        } catch (e) {
+          console.error('[DB Cloud] transactions.saveAll exception:', e);
+        }
+      }
       return true;
     },
   },
@@ -374,30 +441,40 @@ export const db = {
   paymentSettings: {
     get: async () => {
       if (isSupabaseConnected()) {
-        const { data, error } = await supabase
-          .from('payment_settings')
-          .select('data')
-          .eq('id', 'default')
-          .single();
-        if (error || !data) return null;
-        return data.data;
+        try {
+          const { data, error } = await supabase
+            .from('payment_settings')
+            .select('data')
+            .limit(1)
+            .single();
+          if (!error && data?.data) {
+            writeLocal(LOCAL_KEYS.PAYMENT_SETTINGS, data.data);
+            return data.data;
+          }
+        } catch (e) {
+          console.warn('[DB Cloud] paymentSettings.get failed, reading local:', e);
+        }
       }
       return readLocal(LOCAL_KEYS.PAYMENT_SETTINGS, null);
     },
 
     save: async (settingsObj) => {
-      if (isSupabaseConnected()) {
-        const { error } = await supabase
-          .from('payment_settings')
-          .upsert({
-            id: 'default',
-            data: settingsObj,
-            updated_at: new Date().toISOString(),
-          });
-        if (error) console.error('[DB Cloud] paymentSettings.save error:', error);
-        return !error;
-      }
       writeLocal(LOCAL_KEYS.PAYMENT_SETTINGS, settingsObj);
+
+      if (isSupabaseConnected()) {
+        try {
+          const { error } = await supabase
+            .from('payment_settings')
+            .upsert({
+              id: 'default',
+              data: settingsObj,
+              updated_at: new Date().toISOString(),
+            });
+          if (error) console.error('[DB Cloud] paymentSettings.save error:', error);
+        } catch (e) {
+          console.error('[DB Cloud] paymentSettings.save exception:', e);
+        }
+      }
       return true;
     },
   },
@@ -408,37 +485,53 @@ export const db = {
   pricingPackages: {
     list: async () => {
       if (isSupabaseConnected()) {
-        const { data, error } = await supabase
-          .from('pricing_packages')
-          .select('id, data, sort_order')
-          .order('sort_order', { ascending: true });
-        if (error) {
-          console.error('[DB Cloud] pricingPackages.list error:', error);
-          return [];
+        try {
+          const { data, error } = await supabase
+            .from('pricing_packages')
+            .select('id, data, sort_order')
+            .order('sort_order', { ascending: true });
+          if (!error && data && data.length > 0) {
+            const list = data.map((row) => ({ ...row.data, id: row.id }));
+            writeLocal(LOCAL_KEYS.PRICING_PACKAGES, list);
+            return list;
+          }
+        } catch (e) {
+          console.warn('[DB Cloud] pricingPackages.list failed, reading local:', e);
         }
-        return (data || []).map((row) => ({ ...row.data, id: row.id }));
       }
       return readLocal(LOCAL_KEYS.PRICING_PACKAGES, []);
     },
 
     saveAll: async (pkgArray) => {
-      if (isSupabaseConnected()) {
-        // Delete old and insert all
-        await supabase.from('pricing_packages').delete().neq('id', '');
-        const rows = pkgArray.map((p, i) => ({
-          id: p.id,
-          data: p,
-          sort_order: i,
-        }));
-        if (rows.length > 0) {
-          const { error } = await supabase
-            .from('pricing_packages')
-            .insert(rows);
-          if (error) console.error('[DB Cloud] pricingPackages.saveAll error:', error);
-        }
-        return true;
-      }
       writeLocal(LOCAL_KEYS.PRICING_PACKAGES, pkgArray);
+
+      if (isSupabaseConnected()) {
+        try {
+          const rows = pkgArray.map((p, i) => ({
+            id: p.id,
+            data: p,
+            sort_order: i,
+          }));
+
+          // Clean up removed IDs
+          const { data: current } = await supabase.from('pricing_packages').select('id');
+          const currentIds = (current || []).map((r) => r.id);
+          const newIds = new Set(pkgArray.map((p) => p.id));
+          const toDelete = currentIds.filter((id) => !newIds.has(id));
+          if (toDelete.length > 0) {
+            await supabase.from('pricing_packages').delete().in('id', toDelete);
+          }
+
+          if (rows.length > 0) {
+            const { error } = await supabase
+              .from('pricing_packages')
+              .upsert(rows);
+            if (error) console.error('[DB Cloud] pricingPackages.saveAll error:', error);
+          }
+        } catch (e) {
+          console.error('[DB Cloud] pricingPackages.saveAll exception:', e);
+        }
+      }
       return true;
     },
   },
@@ -449,56 +542,69 @@ export const db = {
   pricingFaqs: {
     list: async () => {
       if (isSupabaseConnected()) {
-        const { data, error } = await supabase
-          .from('pricing_faqs')
-          .select('id, data, sort_order')
-          .order('sort_order', { ascending: true });
-        if (error) {
-          console.error('[DB Cloud] pricingFaqs.list error:', error);
-          return [];
+        try {
+          const { data, error } = await supabase
+            .from('pricing_faqs')
+            .select('id, data, sort_order')
+            .order('sort_order', { ascending: true });
+          if (!error && data && data.length > 0) {
+            const list = data.map((row) => ({ ...row.data, id: row.id }));
+            writeLocal(LOCAL_KEYS.PRICING_FAQS, list);
+            return list;
+          }
+        } catch (e) {
+          console.warn('[DB Cloud] pricingFaqs.list failed, reading local:', e);
         }
-        return (data || []).map((row) => ({ ...row.data, id: row.id }));
       }
       return readLocal(LOCAL_KEYS.PRICING_FAQS, []);
     },
 
     saveAll: async (faqArray) => {
-      if (isSupabaseConnected()) {
-        await supabase.from('pricing_faqs').delete().neq('id', '');
-        const rows = faqArray.map((f, i) => ({
-          id: f.id,
-          data: f,
-          sort_order: i,
-        }));
-        if (rows.length > 0) {
-          const { error } = await supabase
-            .from('pricing_faqs')
-            .insert(rows);
-          if (error) console.error('[DB Cloud] pricingFaqs.saveAll error:', error);
-        }
-        return true;
-      }
       writeLocal(LOCAL_KEYS.PRICING_FAQS, faqArray);
+
+      if (isSupabaseConnected()) {
+        try {
+          const rows = faqArray.map((f, i) => ({
+            id: f.id,
+            data: f,
+            sort_order: i,
+          }));
+
+          // Clean up removed IDs
+          const { data: current } = await supabase.from('pricing_faqs').select('id');
+          const currentIds = (current || []).map((r) => r.id);
+          const newIds = new Set(faqArray.map((f) => f.id));
+          const toDelete = currentIds.filter((id) => !newIds.has(id));
+          if (toDelete.length > 0) {
+            await supabase.from('pricing_faqs').delete().in('id', toDelete);
+          }
+
+          if (rows.length > 0) {
+            const { error } = await supabase
+              .from('pricing_faqs')
+              .upsert(rows);
+            if (error) console.error('[DB Cloud] pricingFaqs.saveAll error:', error);
+          }
+        } catch (e) {
+          console.error('[DB Cloud] pricingFaqs.saveAll exception:', e);
+        }
+      }
       return true;
     },
   },
 
   // =======================================================================
-  // 8. BACKWARD COMPAT — profiles/projects (used by old code paths)
+  // 8. BACKWARD COMPAT — profiles/projects
   // =======================================================================
   profiles: {
     get: async (userId) => {
-      // Delegated to ownerData for OWNER-001
       if (userId === 'OWNER-001') {
         const owner = await db.ownerData.get();
         return owner?.profile || null;
       }
       return null;
     },
-    update: async (userId, profileData) => {
-      // No-op for cloud — handled via ownerData.save or customers.update
-      return true;
-    },
+    update: async () => true,
   },
 
   projects: {
@@ -515,7 +621,7 @@ export const db = {
     const startTime = performance.now();
     try {
       if (isSupabaseConnected()) {
-        const { data, error } = await supabase
+        const { error } = await supabase
           .from('owner_data')
           .select('id')
           .limit(1);

@@ -598,20 +598,40 @@ export function PortfolioProvider({ children }) {
   }, []);
 
   // =======================================================================
-  // AUTO-SAVE TO DATABASE (Supabase or localStorage)
-  // Debounced: saves after data changes settle
+  // AUTO-SAVE TO DATABASE (Supabase Cloud + Local Storage Sync)
+  // Debounced: saves immediately locally and syncs to cloud in 250ms
   // =======================================================================
+  const pendingSavesRef = useRef({});
   const saveTimerRef = useRef({});
 
   const debouncedSave = useCallback((key, saveFn, data) => {
     if (isLoading) return; // Don't save during initial load
+    pendingSavesRef.current[key] = { saveFn, data };
     clearTimeout(saveTimerRef.current[key]);
     saveTimerRef.current[key] = setTimeout(() => {
-      saveFn(data).catch((err) =>
-        console.warn(`[PortfolioContext] Failed saving ${key}:`, err)
-      );
-    }, 500); // 500ms debounce
+      saveFn(data)
+        .then(() => {
+          delete pendingSavesRef.current[key];
+        })
+        .catch((err) =>
+          console.warn(`[PortfolioContext] Failed saving ${key}:`, err)
+        );
+    }, 250); // 250ms fast debounce
   }, [isLoading]);
+
+  // Flush pending saves before browser window unloads/refreshes
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      Object.keys(pendingSavesRef.current).forEach((key) => {
+        const item = pendingSavesRef.current[key];
+        if (item && item.saveFn) {
+          item.saveFn(item.data);
+        }
+      });
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
 
   useEffect(() => {
     if (isLoading) return;
