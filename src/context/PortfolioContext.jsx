@@ -568,50 +568,36 @@ export function PortfolioProvider({ children }) {
               ? cloudOwner.projects
               : prev.projects,
           }));
-        } else {
-          db.ownerData.save(ownerData);
         }
 
-        // Sync Customers
-        if (cloudCustomers && cloudCustomers.length > 0) {
+        // Sync Customers (Ground Truth from Cloud)
+        if (Array.isArray(cloudCustomers)) {
           setCustomers(cloudCustomers);
-        } else if (customers && customers.length > 0) {
-          db.customers.saveAll(customers);
         }
 
         // Sync Templates
-        if (cloudTemplates && cloudTemplates.length > 0) {
+        if (Array.isArray(cloudTemplates) && cloudTemplates.length > 0) {
           setTemplates(cloudTemplates);
-        } else if (templates && templates.length > 0) {
-          db.templates.saveAll(templates);
         }
 
         // Sync Transactions
-        if (cloudTransactions && cloudTransactions.length > 0) {
+        if (Array.isArray(cloudTransactions)) {
           setTransactions(cloudTransactions);
-        } else if (transactions && transactions.length > 0) {
-          db.transactions.saveAll(transactions);
         }
 
         // Sync Payment Settings
         if (cloudPayment && Object.keys(cloudPayment).length > 0) {
           setPaymentSettings((prev) => ({ ...prev, ...cloudPayment }));
-        } else if (paymentSettings) {
-          db.paymentSettings.save(paymentSettings);
         }
 
         // Sync Pricing Packages
-        if (cloudPricing && cloudPricing.length > 0) {
+        if (Array.isArray(cloudPricing) && cloudPricing.length > 0) {
           setPricingPackages(cloudPricing);
-        } else if (pricingPackages && pricingPackages.length > 0) {
-          db.pricingPackages.saveAll(pricingPackages);
         }
 
         // Sync FAQs
-        if (cloudFaqs && cloudFaqs.length > 0) {
+        if (Array.isArray(cloudFaqs) && cloudFaqs.length > 0) {
           setPricingFaqs(cloudFaqs);
-        } else if (pricingFaqs && pricingFaqs.length > 0) {
-          db.pricingFaqs.saveAll(pricingFaqs);
         }
       } catch (err) {
         console.warn('[PortfolioContext] Cloud fetch error, using local data:', err);

@@ -109,7 +109,7 @@ export const db = {
             .from('customers')
             .select('id, data, created_at')
             .order('created_at', { ascending: false });
-          if (!error && data && data.length > 0) {
+          if (!error && data !== null) {
             const list = data.map((row) => ({ ...row.data, id: row.id }));
             writeLocal(LOCAL_KEYS.CUSTOMERS, list);
             return list;
@@ -358,7 +358,7 @@ export const db = {
             .from('transactions')
             .select('id, data, created_at')
             .order('created_at', { ascending: false });
-          if (!error && data && data.length > 0) {
+          if (!error && data !== null) {
             const list = data.map((row) => ({ ...row.data, id: row.id }));
             writeLocal(LOCAL_KEYS.TRANSACTIONS, list);
             return list;
@@ -523,7 +523,7 @@ export const db = {
             .from('pricing_packages')
             .select('id, data, sort_order')
             .order('sort_order', { ascending: true });
-          if (!error && data && data.length > 0) {
+          if (!error && data !== null) {
             const list = data.map((row) => ({ ...row.data, id: row.id }));
             writeLocal(LOCAL_KEYS.PRICING_PACKAGES, list);
             return list;
@@ -580,7 +580,7 @@ export const db = {
             .from('pricing_faqs')
             .select('id, data, sort_order')
             .order('sort_order', { ascending: true });
-          if (!error && data && data.length > 0) {
+          if (!error && data !== null) {
             const list = data.map((row) => ({ ...row.data, id: row.id }));
             writeLocal(LOCAL_KEYS.PRICING_FAQS, list);
             return list;
