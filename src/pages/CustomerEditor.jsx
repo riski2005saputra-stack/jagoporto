@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -40,6 +40,7 @@ import { useAuth } from '../context/AuthContext';
 import { LinkedinIcon, InstagramIcon } from '../components/SocialIcons';
 import LivePreviewModal from '../components/LivePreviewModal';
 import { supabase, isSupabaseConnected } from '../services/database';
+import { downloadFile } from '../services/fileHelper';
 
 export default function CustomerEditor() {
   const { customerId } = useParams();
@@ -138,8 +139,10 @@ export default function CustomerEditor() {
   const [editingCertId, setEditingCertId] = useState(null);
   const [certForm, setCertForm] = useState({ title: '', issuer: '', year: '2025', desc: '' });
 
+  const isInitializedRef = useRef(false);
+
   useEffect(() => {
-    if (foundCustomer) {
+    if (foundCustomer && !isInitializedRef.current) {
       setProfileForm(foundCustomer.profile || {});
       setCvForm(foundCustomer.cv || {});
       setSocialForm(foundCustomer.socialMedia || {});
@@ -154,6 +157,7 @@ export default function CustomerEditor() {
         pin: foundCustomer.accessPin || foundCustomer.pin || '1234',
         isPublished: foundCustomer.isPublished !== false,
       });
+      isInitializedRef.current = true;
     }
   }, [foundCustomer]);
 
@@ -2174,15 +2178,14 @@ export default function CustomerEditor() {
                       </label>
 
                       {cvForm.fileUrl && (
-                        <a
-                          href={cvForm.fileUrl}
-                          download={cvForm.fileName || 'CV.pdf'}
-                          target="_blank"
-                          rel="noreferrer"
+                        <button
+                          type="button"
+                          onClick={() => downloadFile(cvForm.fileUrl, cvForm.fileName || 'CV.pdf')}
                           className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-xs font-mono text-white transition-all cursor-pointer"
                         >
+                          <Download className="w-3.5 h-3.5" />
                           <span>Test Unduh ↗</span>
-                        </a>
+                        </button>
                       )}
 
                       {cvForm.fileUrl && (

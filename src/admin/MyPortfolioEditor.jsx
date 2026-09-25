@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -26,10 +26,13 @@ import {
   MapPin,
   Camera,
   Filter,
+  Download,
+  Loader2,
 } from 'lucide-react';
 import { usePortfolio } from '../context/PortfolioContext';
 import { LinkedinIcon, InstagramIcon } from '../components/SocialIcons';
 import LivePreviewModal from '../components/LivePreviewModal';
+import { downloadFile } from '../services/fileHelper';
 
 export default function MyPortfolioEditor() {
   const {
@@ -48,10 +51,14 @@ export default function MyPortfolioEditor() {
   const validTabs = ['page1', 'page2', 'page3', 'page4'];
   const currentTab = validTabs.includes(activeTab) ? activeTab : 'page1';
   const [saveToast, setSaveToast] = useState(false);
+  const [saveToastMsg, setSaveToastMsg] = useState('Perubahan Tersimpan & Langsung Tayang di Website Master!');
   const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [isUploadingCV, setIsUploadingCV] = useState(false);
+  const [cvUploadProgress, setCvUploadProgress] = useState('');
+  const isInitializedRef = useRef(false);
 
   // Profile Form State
-  const [profileForm, setProfileForm] = useState(ownerData.profile);
+  const [profileForm, setProfileForm] = useState(ownerData.profile || {});
 
   // Project Modal State
   const [showProjectModal, setShowProjectModal] = useState(false);
@@ -104,26 +111,31 @@ export default function MyPortfolioEditor() {
   );
 
   // CV Form State
-  const [cvForm, setCvForm] = useState(ownerData.cv);
+  const [cvForm, setCvForm] = useState(ownerData.cv || {});
 
   // Social Form State
-  const [socialForm, setSocialForm] = useState(ownerData.socialMedia);
+  const [socialForm, setSocialForm] = useState(ownerData.socialMedia || {});
 
   useEffect(() => {
-    setProfileForm(ownerData.profile);
-    setCvForm(ownerData.cv);
-    setSocialForm(ownerData.socialMedia);
-    setProjectsListForm(
-      (ownerData.projects || []).map((p) => ({
-        ...p,
-        toolsText: Array.isArray(p.tools) ? p.tools.join(', ') : (p.toolsText || ''),
-      }))
-    );
+    // Only initialize once on mount or when data first arrives so background polls don't overwrite edits
+    if (!isInitializedRef.current && ownerData && Object.keys(ownerData).length > 0) {
+      setProfileForm(ownerData.profile || {});
+      setCvForm(ownerData.cv || {});
+      setSocialForm(ownerData.socialMedia || {});
+      setProjectsListForm(
+        (ownerData.projects || []).map((p) => ({
+          ...p,
+          toolsText: Array.isArray(p.tools) ? p.tools.join(', ') : (p.toolsText || ''),
+        }))
+      );
+      isInitializedRef.current = true;
+    }
   }, [ownerData]);
 
-  const triggerSaveToast = () => {
+  const triggerSaveToast = (msg = 'Perubahan Tersimpan & Langsung Tayang di Website Master!') => {
+    setSaveToastMsg(msg);
     setSaveToast(true);
-    setTimeout(() => setSaveToast(false), 3000);
+    setTimeout(() => setSaveToast(false), 3500);
   };
 
   const handleImageUpload = (e, callback) => {
@@ -459,27 +471,55 @@ export default function MyPortfolioEditor() {
   };
 
   // --- Handlers: CV & Social ---
-  const handleCVFileUpload = (e) => {
+  const handleCVFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (file.size > 20 * 1024 * 1024) {
+      alert('Ukuran file terlalu besar. Maksimal ukuran file CV adalah 20 MB.');
+      e.target.value = '';
+      return;
+    }
+
+    setIsUploadingCV(true);
+    setCvUploadProgress('Membaca file dari perangkat...');
+
     const reader = new FileReader();
-    reader.onload = (event) => {
-      setCvForm((prev) => ({
-        ...prev,
-        fileName: file.name,
-        fileUrl: event.target.result,
-        fileSize: `${Math.round(file.size / 1024)} KB`,
-        lastUpdated: new Date().toISOString().split('T')[0],
-      }));
+    reader.onload = async (event) => {
+      try {
+        setCvUploadProgress('Menyimpan ke sistem & database...');
+        const newCv = {
+          fileName: file.name,
+          fileUrl: event.target.result,
+          fileSize: `${Math.round(file.size / 1024)} KB`,
+          lastUpdated: new Date().toISOString().split('T')[0],
+        };
+        setCvForm(newCv);
+        await updateOwnerCV(newCv);
+        triggerSaveToast('✓ File CV berhasil diperbarui & langsung tersimpan!');
+      } catch (err) {
+        console.error('Error saving CV file:', err);
+        alert('Gagal menyimpan file CV: ' + (err.message || 'Terjadi kesalahan sistem'));
+      } finally {
+        setIsUploadingCV(false);
+        setCvUploadProgress('');
+      }
     };
     reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
-  const handleSaveCV = (e) => {
+  const handleSaveCV = async (e) => {
     e.preventDefault();
-    updateOwnerCV(cvForm);
-    triggerSaveToast();
+    setIsUploadingCV(true);
+    try {
+      await updateOwnerCV(cvForm);
+      triggerSaveToast('✓ Pengaturan CV berhasil disimpan!');
+    } catch (err) {
+      console.error('Error saving CV:', err);
+    } finally {
+      setIsUploadingCV(false);
+    }
   };
 
   const handleSaveSocial = (e) => {
@@ -533,7 +573,7 @@ export default function MyPortfolioEditor() {
             className="fixed top-5 right-5 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl bg-emerald-950/90 border border-emerald-500/50 text-emerald-200 text-xs font-mono font-bold shadow-2xl backdrop-blur-xl"
           >
             <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-            <span>Perubahan Tersimpan & Langsung Tayang di Website Master!</span>
+            <span>{saveToastMsg}</span>
           </motion.div>
         )}
       </AnimatePresence>
@@ -1780,9 +1820,17 @@ export default function MyPortfolioEditor() {
           {/* SubTab 6: File CV */}
           {aboutSubTab === 'cv' && (
             <form onSubmit={handleSaveCV} className="p-6 rounded-2xl bg-[#090E17]/90 border border-white/15 shadow-xl space-y-5">
-              <h3 className="text-sm font-bold text-white uppercase font-sans tracking-wider pb-2 border-b border-white/10">
-                6. File Curriculum Vitae (CV) Siap Unduh
-              </h3>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-white/10">
+                <h3 className="text-sm font-bold text-white uppercase font-sans tracking-wider">
+                  6. File Curriculum Vitae (CV) Siap Unduh
+                </h3>
+                {isUploadingCV && (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-950/80 border border-rose-500/50 text-[11px] font-mono text-rose-300 animate-pulse">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>{cvUploadProgress || 'Memproses file CV...'}</span>
+                  </span>
+                )}
+              </div>
 
               <div className="p-5 rounded-2xl bg-[#060B12] border border-slate-700 flex flex-col sm:flex-row items-center gap-5">
                 <div className="w-20 h-20 rounded-2xl bg-rose-950/60 border border-rose-500/40 flex flex-col items-center justify-center text-rose-400 shrink-0 shadow-lg">
@@ -1798,12 +1846,12 @@ export default function MyPortfolioEditor() {
                   </div>
                   <p className="text-[11px] text-slate-400 font-sans leading-relaxed">
                     {cvForm.fileUrl
-                      ? `✓ File siap diunduh oleh pengunjung portofolio pada tombol "Download CV".`
+                      ? `✓ File siap diunduh oleh pengunjung portofolio pada tombol "Download CV". ${cvForm.fileSize ? `Ukuran: ${cvForm.fileSize}.` : ''}`
                       : `Pilih file CV dari komputer atau HP Anda (format PDF, DOC, DOCX). File akan langsung tersimpan ke sistem.`}
                   </p>
 
                   <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2.5 pt-1">
-                    <label className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-rose-900 to-[#5c0b25] hover:from-rose-800 text-xs font-bold text-white shadow-md cursor-pointer transition-all hover:scale-[1.02] border border-rose-500/40">
+                    <label className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-rose-900 to-[#5c0b25] hover:from-rose-800 text-xs font-bold text-white shadow-md cursor-pointer transition-all hover:scale-[1.02] border border-rose-500/40 ${isUploadingCV ? 'opacity-50 pointer-events-none' : ''}`}>
                       <UploadCloud className="w-4 h-4 text-rose-300" />
                       <span>{cvForm.fileUrl ? 'Ganti File CV dari Perangkat' : 'Pilih File CV dari Perangkat'}</span>
                       <input
@@ -1811,25 +1859,30 @@ export default function MyPortfolioEditor() {
                         accept=".pdf,.doc,.docx,.png,.jpg,.jpeg"
                         className="hidden"
                         onChange={handleCVFileUpload}
+                        disabled={isUploadingCV}
                       />
                     </label>
 
                     {cvForm.fileUrl && (
-                      <a
-                        href={cvForm.fileUrl}
-                        download={cvForm.fileName || 'CV Riski Saputra.pdf'}
-                        target="_blank"
-                        rel="noreferrer"
+                      <button
+                        type="button"
+                        onClick={() => downloadFile(cvForm.fileUrl, cvForm.fileName || 'CV Riski Saputra.pdf')}
                         className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-xs font-mono text-white transition-all cursor-pointer"
                       >
+                        <Download className="w-3.5 h-3.5 text-rose-300" />
                         <span>Test Unduh ↗</span>
-                      </a>
+                      </button>
                     )}
 
                     {cvForm.fileUrl && (
                       <button
                         type="button"
-                        onClick={() => setCvForm({ ...cvForm, fileName: '', fileUrl: '' })}
+                        onClick={async () => {
+                          const emptyCv = { fileName: '', fileUrl: '', fileSize: '', lastUpdated: '' };
+                          setCvForm(emptyCv);
+                          await updateOwnerCV(emptyCv);
+                          triggerSaveToast('✓ File CV berhasil dihapus');
+                        }}
                         className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-950/60 hover:bg-rose-900 border border-rose-500/40 text-xs font-mono text-rose-300 hover:text-white transition-all cursor-pointer"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -1854,10 +1907,11 @@ export default function MyPortfolioEditor() {
               <div className="flex justify-end pt-3 border-t border-white/10">
                 <button
                   type="submit"
-                  className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-rose-900 to-[#5c0b25] hover:from-rose-800 text-xs font-bold text-white shadow-md cursor-pointer"
+                  disabled={isUploadingCV}
+                  className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-rose-900 to-[#5c0b25] hover:from-rose-800 text-xs font-bold text-white shadow-md cursor-pointer disabled:opacity-50"
                 >
-                  <Save className="w-4 h-4" />
-                  <span>Simpan Pengaturan CV</span>
+                  {isUploadingCV ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  <span>{isUploadingCV ? 'Menyimpan...' : 'Simpan Pengaturan CV'}</span>
                 </button>
               </div>
             </form>

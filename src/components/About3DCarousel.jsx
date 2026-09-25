@@ -3,6 +3,7 @@ import { motion, useInView } from 'framer-motion';
 import { ChevronLeft, ChevronRight, Folder, Award, Briefcase, Download, ArrowRight, Cpu } from 'lucide-react';
 import riskiPortrait from '../assets/riski-about-portrait.jpg';
 import { usePortfolio } from '../context/PortfolioContext';
+import { downloadFile } from '../services/fileHelper';
 
 export default function About3DCarousel({ onOpenModal, activeIndex: controlledIndex, onIndexChange, customData }) {
   const { ownerData } = usePortfolio();
@@ -29,13 +30,7 @@ export default function About3DCarousel({ onOpenModal, activeIndex: controlledIn
       buttonText: 'Download CV',
       buttonIcon: Download,
       action: () => {
-        const link = document.createElement('a');
-        link.href = cvUrl;
-        link.download = cvFileName;
-        link.target = '_blank';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        downloadFile(cvUrl, cvFileName);
       },
     },
     {

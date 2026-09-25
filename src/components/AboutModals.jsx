@@ -12,6 +12,7 @@ import {
   Calendar,
 } from 'lucide-react';
 import { usePortfolio } from '../context/PortfolioContext';
+import { downloadFile } from '../services/fileHelper';
 
 export default function AboutModals({
   activeModal,
@@ -151,16 +152,14 @@ export default function AboutModals({
 
               {/* Action Buttons */}
               <div className="flex flex-wrap items-center justify-end gap-3 pt-3 border-t border-white/15">
-                <a
-                  href={cvUrl}
-                  download={cvFileName}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-white bg-rose-950/70 hover:bg-rose-900 border border-white/30 transition-all shadow-md"
+                <button
+                  type="button"
+                  onClick={() => downloadFile(cvUrl, cvFileName)}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-white bg-rose-950/70 hover:bg-rose-900 border border-white/30 transition-all shadow-md cursor-pointer"
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>Download CV & Portofolio Lengkap (PDF)</span>
-                </a>
+                </button>
               </div>
             </div>
           )}
@@ -476,16 +475,14 @@ export default function AboutModals({
 
               {/* Action Buttons */}
               <div className="flex flex-wrap items-center justify-end gap-3 pt-3 border-t border-white/15">
-                <a
-                  href={cvUrl}
-                  download={cvFileName}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-white bg-rose-950/70 hover:bg-rose-900 border border-white/30 transition-all shadow-md"
+                <button
+                  type="button"
+                  onClick={() => downloadFile(cvUrl, cvFileName)}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-white bg-rose-950/70 hover:bg-rose-900 border border-white/30 transition-all shadow-md cursor-pointer"
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>Download Curriculum Vitae (PDF)</span>
-                </a>
+                </button>
               </div>
             </div>
           )}

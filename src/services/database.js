@@ -10,7 +10,7 @@ import { supabase, isSupabaseConnected } from './supabase';
 export { supabase, isSupabaseConnected };
 
 // =========================================================================
-// LOCAL STORAGE KEYS
+// LOCAL STORAGE & INDEXED-DB HYBRID ENGINE
 // =========================================================================
 export const LOCAL_KEYS = {
   OWNER: 'riski_owner_portfolio_v1',
@@ -21,6 +21,69 @@ export const LOCAL_KEYS = {
   PRICING_PACKAGES: 'riski_pricing_packages_v1',
   PRICING_FAQS: 'riski_pricing_faqs_v1',
 };
+
+const IDB_NAME = 'jagoporto_storage_v1';
+const IDB_STORE = 'app_data';
+
+function openIDB() {
+  return new Promise((resolve, reject) => {
+    if (typeof window === 'undefined' || !window.indexedDB) {
+      return reject(new Error('IndexedDB not supported'));
+    }
+    const req = window.indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const database = req.result;
+      if (!database.objectStoreNames.contains(IDB_STORE)) {
+        database.createObjectStore(IDB_STORE);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function idbGet(key) {
+  try {
+    const database = await openIDB();
+    return new Promise((resolve, reject) => {
+      const tx = database.transaction(IDB_STORE, 'readonly');
+      const req = tx.objectStore(IDB_STORE).get(key);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  } catch {
+    return null;
+  }
+}
+
+export async function idbSet(key, value) {
+  try {
+    const database = await openIDB();
+    return new Promise((resolve, reject) => {
+      const tx = database.transaction(IDB_STORE, 'readwrite');
+      const req = tx.objectStore(IDB_STORE).put(value, key);
+      req.onsuccess = () => resolve(true);
+      req.onerror = () => reject(req.error);
+    });
+  } catch (e) {
+    console.warn('[IDB] Failed writing ' + key, e);
+    return false;
+  }
+}
+
+export async function idbDel(key) {
+  try {
+    const database = await openIDB();
+    return new Promise((resolve, reject) => {
+      const tx = database.transaction(IDB_STORE, 'readwrite');
+      const req = tx.objectStore(IDB_STORE).delete(key);
+      req.onsuccess = () => resolve(true);
+      req.onerror = () => reject(req.error);
+    });
+  } catch {
+    return false;
+  }
+}
 
 export function readLocal(key, fallback = null) {
   try {
@@ -33,10 +96,15 @@ export function readLocal(key, fallback = null) {
 }
 
 export function writeLocal(key, data) {
+  // 1. Asynchronously persist to IndexedDB (zero quota limitation for large base64/files)
+  idbSet(key, data).catch(() => {});
+
+  // 2. Also try localStorage for fast synchronous boots
   try {
     localStorage.setItem(key, JSON.stringify(data));
   } catch (e) {
-    console.warn(`[DB Local] Failed writing ${key}:`, e);
+    // If quota exceeded or localStorage disabled, IndexedDB already holds the complete state
+    console.warn(`[DB Local] localStorage quota reached or write failed for ${key}, data safely preserved in IndexedDB.`);
   }
 }
 
@@ -57,45 +125,149 @@ export const db = {
   // =======================================================================
   ownerData: {
     get: async () => {
+      let ownerResult = null;
+      let cvResult = null;
+
       if (isSupabaseConnected()) {
         try {
-          const { data, error } = await supabase
-            .from('owner_data')
-            .select('data')
-            .eq('id', 'OWNER-001')
-            .single();
-          if (!error && data?.data) {
-            writeLocal(LOCAL_KEYS.OWNER, data.data);
-            return data.data;
+          // Fetch OWNER-001 and OWNER-001-CV concurrently
+          const [ownerRes, cvRes] = await Promise.all([
+            supabase
+              .from('owner_data')
+              .select('data')
+              .eq('id', 'OWNER-001')
+              .maybeSingle(),
+            supabase
+              .from('owner_data')
+              .select('data')
+              .eq('id', 'OWNER-001-CV')
+              .maybeSingle(),
+          ]);
+
+          if (ownerRes.data?.data) {
+            ownerResult = ownerRes.data.data;
+          }
+          if (cvRes.data?.data) {
+            cvResult = cvRes.data.data;
           }
         } catch (e) {
-          console.warn('[DB Cloud] ownerData.get failed, reading local:', e);
+          console.warn('[DB Cloud] ownerData.get failed, fallback to local:', e);
         }
+      }
+
+      // If cloud returned data, merge CV and cache locally
+      if (ownerResult) {
+        if (cvResult && (cvResult.fileUrl || cvResult.fileName)) {
+          ownerResult.cv = {
+            ...(ownerResult.cv || {}),
+            ...cvResult,
+          };
+        }
+        writeLocal(LOCAL_KEYS.OWNER, ownerResult);
+        return ownerResult;
+      }
+
+      // Fallback: check IndexedDB, then localStorage
+      const idbData = await idbGet(LOCAL_KEYS.OWNER);
+      if (idbData) {
+        const idbCv = await idbGet('riski_owner_cv_v1');
+        if (idbCv) {
+          idbData.cv = { ...(idbData.cv || {}), ...idbCv };
+        }
+        return idbData;
       }
       return readLocal(LOCAL_KEYS.OWNER, null);
     },
 
     save: async (ownerObj) => {
-      // 1. Save locally immediately
+      // 1. Save to local storage (IndexedDB + safe localStorage)
       writeLocal(LOCAL_KEYS.OWNER, ownerObj);
 
       // 2. Sync to Supabase Cloud
       if (isSupabaseConnected()) {
         try {
-          const { error } = await supabase
+          let cvToSync = null;
+          let cleanOwner = { ...ownerObj };
+
+          // Separate CV if it has a large data URL to keep OWNER-001 lean and fast
+          if (ownerObj.cv && ownerObj.cv.fileUrl && ownerObj.cv.fileUrl.startsWith('data:')) {
+            cvToSync = ownerObj.cv;
+            cleanOwner = {
+              ...cleanOwner,
+              cv: {
+                fileName: ownerObj.cv.fileName,
+                fileSize: ownerObj.cv.fileSize,
+                lastUpdated: ownerObj.cv.lastUpdated,
+                hasUploadedFile: true,
+              },
+            };
+          }
+
+          // Use UPDATE first to avoid slow ON CONFLICT statement timeouts in PostgREST!
+          const { error: updateErr } = await supabase
             .from('owner_data')
-            .upsert({
-              id: 'OWNER-001',
-              data: ownerObj,
+            .update({
+              data: cleanOwner,
               updated_at: new Date().toISOString(),
-            });
-          if (error) console.error('[DB Cloud] ownerData.save error:', error);
-          return !error;
+            })
+            .eq('id', 'OWNER-001');
+
+          if (updateErr) {
+            await supabase
+              .from('owner_data')
+              .upsert({
+                id: 'OWNER-001',
+                data: cleanOwner,
+                updated_at: new Date().toISOString(),
+              });
+          }
+
+          // Sync separate CV record if present
+          if (cvToSync) {
+            await supabase
+              .from('owner_data')
+              .upsert({
+                id: 'OWNER-001-CV',
+                data: cvToSync,
+                updated_at: new Date().toISOString(),
+              });
+          }
+
+          return true;
         } catch (e) {
           console.error('[DB Cloud] ownerData.save exception:', e);
         }
       }
       return true;
+    },
+
+    saveCV: async (cvObj) => {
+      try {
+        await idbSet('riski_owner_cv_v1', cvObj);
+
+        // Update local ownerData in cache
+        const currentLocal = (await idbGet(LOCAL_KEYS.OWNER)) || readLocal(LOCAL_KEYS.OWNER, null);
+        if (currentLocal) {
+          currentLocal.cv = { ...(currentLocal.cv || {}), ...cvObj };
+          writeLocal(LOCAL_KEYS.OWNER, currentLocal);
+        }
+
+        if (isSupabaseConnected()) {
+          const { error } = await supabase
+            .from('owner_data')
+            .upsert({
+              id: 'OWNER-001-CV',
+              data: cvObj,
+              updated_at: new Date().toISOString(),
+            });
+          if (error) console.error('[DB Cloud] saveCV error:', error);
+          return !error;
+        }
+        return true;
+      } catch (e) {
+        console.error('[DB] saveCV error:', e);
+        return false;
+      }
     },
   },
 

@@ -607,19 +607,15 @@ export function PortfolioProvider({ children }) {
     refreshData();
   }, [refreshData]);
 
-  // Tab Focus & Periodic Polling (Double-Guarantee)
+  // Periodic Background Polling (Every 60s)
+  // Window focus listener is intentionally omitted to prevent wiping out form states
+  // when users select files via native file picker dialogs.
   useEffect(() => {
-    const handleFocus = () => {
-      refreshData();
-    };
-    window.addEventListener('focus', handleFocus);
-
     const interval = setInterval(() => {
       refreshData();
-    }, 15000);
+    }, 60000);
 
     return () => {
-      window.removeEventListener('focus', handleFocus);
       clearInterval(interval);
     };
   }, [refreshData]);
@@ -887,15 +883,22 @@ export function PortfolioProvider({ children }) {
     });
   };
 
-  const updateOwnerCV = (newCv) => {
+  const updateOwnerCV = async (newCv) => {
     setOwnerData((prev) => {
       const updated = {
         ...prev,
         cv: { ...prev.cv, ...newCv },
       };
-      db.ownerData.save(updated);
       return updated;
     });
+    // Immediately persist both dedicated CV record and ownerData
+    await db.ownerData.saveCV(newCv);
+    const updatedFull = {
+      ...ownerData,
+      cv: { ...(ownerData?.cv || {}), ...newCv },
+    };
+    await db.ownerData.save(updatedFull);
+    return true;
   };
 
   // =======================================================================
