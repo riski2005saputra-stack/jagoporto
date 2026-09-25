@@ -884,20 +884,20 @@ export function PortfolioProvider({ children }) {
   };
 
   const updateOwnerCV = async (newCv) => {
+    let updatedFull = null;
     setOwnerData((prev) => {
       const updated = {
         ...prev,
-        cv: { ...prev.cv, ...newCv },
+        cv: { ...(prev?.cv || {}), ...newCv },
       };
+      updatedFull = updated;
       return updated;
     });
     // Immediately persist both dedicated CV record and ownerData
     await db.ownerData.saveCV(newCv);
-    const updatedFull = {
-      ...ownerData,
-      cv: { ...(ownerData?.cv || {}), ...newCv },
-    };
-    await db.ownerData.save(updatedFull);
+    if (updatedFull) {
+      await db.ownerData.save(updatedFull);
+    }
     return true;
   };
 
